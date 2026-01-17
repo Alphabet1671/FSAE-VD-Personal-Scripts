@@ -24,8 +24,8 @@ rearSpringCurve = SetSpringCurve(rearSpringTable, 1);
 damperTable = readtable("DamperTable.xlsx","Sheet","Multimatic_DSSV_VC01");
 
 %%
-frontMRSweep = 0.5:0.1:1.5; % change sweep range here
-rearMRSweep = 0.5:0.1:1.5;
+frontMRSweep = 0.6:0.1:1.8; % change sweep range here
+rearMRSweep = 0.6:0.1:1.8;
 
 %%
 for i = 1:length(frontMRSweep)
@@ -34,13 +34,14 @@ for i = 1:length(frontMRSweep)
         rearDamperCurve = SetDamperClick(damperTable, rearMRSweep(j), 6, 6);
         run = SingleRun(frontDamperCurve, rearDamperCurve, frontSpringCurve, rearSpringCurve);
         KPI = CalculateKPI(run);
-
+        
         frontMinCPL(i,j) = KPI.frontMinCPL;
         rearMinCPL(i,j) = KPI.rearMinCPL;
         frontCPLV(i,j) = KPI.frontCPLVRMS;
         rearCPLV(i,j) = KPI.rearCPLVRMS;
         bodyPitch(i,j) = KPI.bodyPitchRMS;
         hubPitch(i,j) = KPI.hubPitchRMS;
+        zeta(i,j) = KPI.heaveZeta;
 
     end
 end
@@ -49,51 +50,75 @@ end
 close all
 contourLineCount = 25;
 
-figure
-contourf(frontMRSweep, rearMRSweep, (frontCPLV+rearCPLV)/2,contourLineCount);
+% Create tiled layout
+figure('Position', [100, 100, 1200, 900]);
+tiledlayout(2, 3, 'Padding', 'compact', 'TileSpacing', 'compact');
+
+% Tile 1: Total CPLV
+nexttile
+contourf(frontMRSweep, rearMRSweep, (frontCPLV+rearCPLV)/2, contourLineCount);
 grid on
-colorbar east
-xlabel("Front MR");
-ylabel("Rear MR");
-title("Total CPLV vs. Motion Ratio");
+colorbar('eastoutside')
+xlabel("Front MR")
+ylabel("Rear MR")
+title("Total CPLV vs. Motion Ratio")
 % Here, the CPLV is given as RMS value over time, somewhat signaling the
 % grip level across the entire frequency spectrum, the less variation there
 % is, the higher the grip.
+subtitle('lower is better')
 
-figure
-contourf(frontMRSweep, rearMRSweep, (frontMinCPL+rearMinCPL)/2,contourLineCount);
+% Tile 2: Min CPL
+nexttile
+contourf(frontMRSweep, rearMRSweep, (frontMinCPL+rearMinCPL)/2, contourLineCount);
 grid on
-colorbar east
-xlabel("Front MR");
-ylabel("Rear MR");
-title("Min CPL vs. Motion Ratio");
+colorbar('eastoutside')
+xlabel("Front MR")
+ylabel("Rear MR")
+title("Min CPL vs. Motion Ratio")
 % Here, the minimum CPL is the smallest wheel load the car sees on the
 % shaker given a typical road input, this usually happens when the car is
 % at its unsprung mode. The reason why this is considered alongside the RMS
 % CPLV is that you don't want a car that surpresses everything really well
 % but then gives a super huge primary mode oscillation. This metric is more
 % tied to the performance of the vehicle under large body movement such as
-% straight line max braking and step steer. 
+% straight line max braking and step steer.
+subtitle('higher is better')
 
-figure
-contourf(frontMRSweep, rearMRSweep, hubPitch,contourLineCount);
+% Tile 3: Hub Pitch
+nexttile
+contourf(frontMRSweep, rearMRSweep, hubPitch, contourLineCount);
 grid on
-colorbar east
-xlabel("Front MR");
-ylabel("Rear MR");
-title("Hub Pitch vs. Motion Ratio");
+colorbar('eastoutside')
+xlabel("Front MR")
+ylabel("Rear MR")
+title("Hub Pitch vs. Motion Ratio")
 % "Hub pitch" is the difference between the front and rear unsprung mass
 % displacement at any given time. This is important because the test input
 % is pure heave. A strong pitch correlates to uneven motion of the front
 % and rear wheel, indicating a mismatch in stiffness or damping.
+subtitle('lower is better')
 
-figure
-contourf(frontMRSweep, rearMRSweep, bodyPitch,contourLineCount);
+% Tile 4: Body Pitch
+nexttile
+contourf(frontMRSweep, rearMRSweep, bodyPitch, contourLineCount);
 grid on
-colorbar east
-xlabel("Front MR");
-ylabel("Rear MR");
-title("Body Pitch vs. Motion Ratio");
+colorbar('eastoutside')
+xlabel("Front MR")
+ylabel("Rear MR")
+title("Body Pitch vs. Motion Ratio")
 % Similar to hub pitch, body pitch is just the difference between the front
 % and rear body displacement.
+subtitle('lower is better')
 
+% Tile 5: Heave Zeta
+nexttile
+contourf(frontMRSweep, rearMRSweep, zeta, contourLineCount);
+grid on
+colorbar('eastoutside')
+xlabel("Front MR")
+ylabel("Rear MR")
+title("Heave Zeta vs. Motion Ratio")
+subtitle('higher is better')
+
+% Add overall title
+sgtitle('MR Design Tool', 'FontSize', 14, 'FontWeight', 'bold')
