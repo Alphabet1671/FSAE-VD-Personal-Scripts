@@ -52,8 +52,8 @@ function KPI = CalculateKPI(result)
     rearHubDisplacement = rearHubDisplacement - rearNominalHubDisplacement;
 
     % body & hub pitch
-    bodyPitch = (1.53/(frontBodyDisplacement - rearBodyDisplacement)); % head up is positive
-    hubPitch = (1.53/(frontHubDisplacement - rearHubDisplacement));
+    bodyPitch = frontBodyDisplacement - rearBodyDisplacement; % head up is positive
+    hubPitch = frontHubDisplacement - rearHubDisplacement;
     
     KPI.frontMinCPL = 1 + min(frontCPLV(simInterval));
     KPI.rearMinCPL = 1 + min(rearCPLV(simInterval));
