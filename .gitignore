@@ -1,2 +1,8 @@
-Vertical Dynamics/slprj
+/Vertical Dynamics/slprj/
 *.asv
+*.slxc
+.DS_Store
+.*
+*.slx.autosave
+
+
