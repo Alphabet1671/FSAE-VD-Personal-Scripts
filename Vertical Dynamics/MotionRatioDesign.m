@@ -11,7 +11,20 @@
 clc;
 clear;
 close all;
-%%
+%% Input Deck
+car.sprungMass = 300; % kg
+car.pitchInertia = 44; % whatever tf the SI unit is for this
+car.unsprungMass = 12; % kg
+car.wheelbase = 1.53; % m
+car.CGx = 0.45; % ratio fwd
+car.CGh = 0.3; % m
+
+car.frontTireStiffness = 114000; % N/m
+car.frontTireDamping = 400; % Ns/m
+car.rearTireStiffness = 114000;
+car.rearTireDamping = 400;
+
+
 targetFrontWheelRate = 80; % N/mm
 targetRearWheelRate = 70;
 
@@ -29,10 +42,10 @@ rearMRSweep = 0.6:0.1:1.8;
 
 %%
 for i = 1:length(frontMRSweep)
-    parfor j = 1:length(rearMRSweep)
+    for j = 1:length(rearMRSweep)
         frontDamperCurve = SetDamperClick(damperTable, frontMRSweep(i), 6, 6);
         rearDamperCurve = SetDamperClick(damperTable, rearMRSweep(j), 6, 6);
-        run = SingleRun(frontDamperCurve, rearDamperCurve, frontSpringCurve, rearSpringCurve);
+        run = SingleRun(car, frontDamperCurve, rearDamperCurve, frontSpringCurve, rearSpringCurve);
         KPI = CalculateKPI(run);
         
         frontMinCPL(i,j) = KPI.frontMinCPL;

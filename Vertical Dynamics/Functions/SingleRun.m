@@ -1,7 +1,9 @@
-function result = SingleRun(frontDamperCurve, rearDamperCurve, frontSpringCurve, rearSpringCurve)
+function result = SingleRun(car, frontDamperCurve, rearDamperCurve, frontSpringCurve, rearSpringCurve)
     simInput = Simulink.SimulationInput("HalfCarModel");
 
     simInput = simInput.setVariable("ax", 0);
+
+    simInput = simInput.setVariable("car",car);
     
     simInput = simInput.setVariable("f_damper_curve_x",frontDamperCurve(1,:));
     simInput = simInput.setVariable("f_damper_curve_y",frontDamperCurve(2,:));
