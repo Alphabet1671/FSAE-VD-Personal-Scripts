@@ -41,11 +41,14 @@ function KPI = CalculateKPI(result)
 
     % Find all peaks in the response
     [peaks, peak_locs] = findpeaks(-displacement);
-    peaks = peaks+displacement(end);
-    delta =  log(peaks(1)/peaks(2));  % average logarithmic decrement
-    % k = -m*9.81/displacement(end); % used only for sim plots
-    zeta = delta / sqrt(4*pi^2 + delta^2);
-    
+    if length(peaks) > 2
+        peaks = peaks+displacement(end);
+        delta =  log(peaks(1)/peaks(2));  % average logarithmic decrement
+        % k = -m*9.81/displacement(end); % used only for sim plots
+        zeta = real(delta / sqrt(4*pi^2 + delta^2));
+    else
+        zeta = 0;
+    end
     
     % % Verification plot
     % figure;
