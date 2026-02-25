@@ -6,4 +6,5 @@
 *.slx.autosave
 slprj/
 /Yaw Dynamics/slprj/
+*.csv
 
