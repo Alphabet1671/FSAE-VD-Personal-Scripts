@@ -1,4 +1,4 @@
-function out = unitire_simple(alpha, kappa, Fz, omegaHub, tire, road)
+function out = unitire_simple_solve(alpha, kappa, Fz, omegaHub, tire, road)
 % UNITIRE_STEADY
 % Steady-state UniTire-style tire model using direct SAE slip inputs.
 %
