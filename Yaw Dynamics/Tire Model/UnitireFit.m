@@ -67,6 +67,24 @@ run8 = [
 19921,   21168,  4,  445;
 ];
 
+run72_SA0 = [
+% row format: Start index, end index, IA, Fz
+    383,    775,   0, 1112;
+   1255,   1972,   0,  889;
+   2308,   2552,   0,  660;
+   3283,   3927,   0,  222;
+
+   5830,   6060,   2, 1112;
+   3928,   4645,   2,  889;
+   4966,   5226,   2,  660;
+   6061,   6709,   2,  222;
+
+   8412,   8843,   4, 1112;
+   6710,   7421,   4,  889;
+   7592,   8023,   4,  660;
+   8844,   9499,   4,  222;
+];
+
 %% UniTire Model
 tire = struct();
 
@@ -174,16 +192,16 @@ tire.pKyv2 = 0;
 %% Longitudinal slip terms
 
 % Constant horizontal shift in effective longitudinal slip ratio.
-tire.pHx1 = 0;
+tire.pHx1 = 0.032;
 
 % Load-dependent horizontal shift in effective longitudinal slip ratio.
-tire.pHx2 = 0;
+tire.pHx2 =0.0682;
 
 % Baseline longitudinal stiffness scale that sets the initial Fx vs kappa slope.
-tire.pKx1 = 10;
+tire.pKx1 = 95;
 
 % Linear load sensitivity of the longitudinal stiffness term.
-tire.pKx2 = 2;
+tire.pKx2 = -23.6;
 
 % Quadratic load sensitivity of the longitudinal stiffness term.
 tire.pKx3 = 0;
@@ -195,43 +213,43 @@ tire.pEx1 = 10;
 tire.pEx2 = 5;
 
 % Reference-condition peak longitudinal friction coefficient.
-tire.pMux01 = 2.20;
+tire.pMux01 = 2.095;
 
 % Load sensitivity scale of the peak longitudinal friction coefficient.
-tire.pMux02 = 1.5;
+tire.pMux02 = -8.161;
 
 % Camber sensitivity of the peak longitudinal friction coefficient.
-tire.pMux03 = 0;
+tire.pMux03 = -15.81;
 
 % Ratio of sliding longitudinal friction to peak longitudinal friction.
-tire.a_pmusx1 = 0.7;
+tire.a_pmusx1 = 0.84;
 
 % Sign-asymmetry term for sliding longitudinal friction level.
-tire.b_pmusx1 = 0;
+tire.b_pmusx1 = 0.05;
 
 % Camber sensitivity of sliding longitudinal friction level.
-tire.a_pmusx2 = 0;
+tire.a_pmusx2 = -6.225;
 
 % Sign-asymmetry in the camber effect on sliding longitudinal friction.
-tire.b_pmusx2 = 0;
+tire.b_pmusx2 = 0.07;
 
 % Characteristic longitudinal slip-velocity scale for the peak-to-sliding transition.
-tire.a_pmumx1 = 1.0;
+tire.a_pmumx1 = 0.9;
 
 % Sign-asymmetry term for characteristic longitudinal slip-velocity scale.
-tire.b_pmumx1 = 0;
+tire.b_pmumx1 = -0.5519;
 
 % Camber sensitivity of characteristic longitudinal slip velocity.
-tire.a_pmumx2 = 0;
+tire.a_pmumx2 = 16.69;
 
 % Sign-asymmetry in the camber effect on characteristic longitudinal slip velocity.
-tire.b_pmumx2 = 0;
+tire.b_pmumx2 = -18.85;
 
 % Shape factor governing how longitudinal friction transitions from peak to sliding.
 tire.a_pmuhx1 = 0.3;
 
 % Sign-asymmetry term for the longitudinal friction-transition shape factor.
-tire.b_pmuhx1 = 0;
+tire.b_pmuhx1 = 0.555;
 
 % Camber sensitivity of the longitudinal friction-transition shape factor.
 tire.a_pmuhx2 = 0;
@@ -431,6 +449,21 @@ createInteractiveFitWindow( ...
     tire, FzSweep, IASweep, SASweep, vBelt, run8, SA, FY, "camberContribution");
 
 
+%% Longitudinal interactive windows
+FzSweepLong = [222,660,889,1112];
+kappaSweep = -0.2:0.002:0.2;
+
+longData = load("B2356run72.mat");
+[kappaData, FX] = getLongitudinalSignals(longData);
+
+createInteractiveLongitudinalFitWindow( ...
+    tire, FzSweepLong, IASweep, kappaSweep, vBelt, run72_SA0, kappaData, FX, "pureLongitudinal");
+
+createInteractiveLongitudinalFitWindow( ...
+    tire, FzSweepLong, IASweep, kappaSweep, vBelt, run72_SA0, kappaData, FX, "camberLongitudinal");
+
+
+%% Functions
 function createInteractiveFitWindow(tire, FzSweep, IASweep, SASweep, vBelt, run8, SA, FY, mode)
 
     switch mode
@@ -758,4 +791,386 @@ function updateParameterPlots(win)
     end
 
     drawnow limitrate
+end
+
+function createInteractiveLongitudinalFitWindow(tire, FzSweep, IASweep, kappaSweep, vBelt, run72_SA0, kappaData, FX, mode)
+
+    switch mode
+        case "pureLongitudinal"
+            paramSpec = {
+                'pHx1',       [-0.20 0.20];
+                'pHx2',       [-0.20 0.20];
+                'pKx1',       [0 100];
+                'pKx2',       [-50 50];
+                'pKx3',       [-20 20];
+                'pEx1',       [-100 100];
+                'pEx2',       [0.1 100];
+                'pMux01',     [0 4];
+                'pMux02',     [-50 50];
+                'a_pmusx1',   [0 1.5];
+                'a_pmumx1',   [0 5];
+                'a_pmuhx1',   [0 5];
+                'b_pmusx1',   [-20 20];
+                'b_pmumx1',   [-20 20];
+                'b_pmuhx1',   [-20 20];
+            };
+            winName = 'Pure Longitudinal Fit';
+            nPlotRows = 1;
+            nPlotCols = length(FzSweep);
+
+        case "camberLongitudinal"
+            paramSpec = {
+                'pMux03',     [-100 100];
+                'a_pmusx2',   [-30 30];
+                'b_pmusx2',   [-30 30];
+                'a_pmumx2',   [-30 30];
+                'b_pmumx2',   [-30 30];
+                'a_pmuhx2',   [-30 30];
+                'b_pmuhx2',   [-30 30];
+            };
+            winName = 'Camber Contribution Longitudinal Fit';
+            nPlotRows = 1;
+            nPlotCols = length(IASweep);
+    end
+
+    paramNames = paramSpec(:,1)';
+    paramRanges = vertcat(paramSpec{:,2});
+
+    nParams = numel(paramNames);
+    nCtrlCols = 2;
+    nCtrlRows = ceil(nParams / nCtrlCols);
+
+    win = uifigure( ...
+        'Name', winName, ...
+        'Position', [100 100 1650 max(760, 160 + 120*nCtrlRows)]);
+
+    outer = uigridlayout(win,[1 2]);
+    outer.ColumnWidth = {460, '1x'};
+    outer.RowHeight = {'1x'};
+    outer.ColumnSpacing = 10;
+    outer.Padding = [10 10 10 10];
+
+    ctrlGrid = uigridlayout(outer,[nCtrlRows+1 nCtrlCols]);
+    ctrlGrid.Layout.Row = 1;
+    ctrlGrid.Layout.Column = 1;
+    ctrlGrid.RowHeight = [repmat({95},1,nCtrlRows), {40}];
+    ctrlGrid.ColumnWidth = {'1x','1x'};
+    ctrlGrid.Padding = [10 10 10 10];
+    ctrlGrid.RowSpacing = 10;
+    ctrlGrid.ColumnSpacing = 10;
+    ctrlGrid.Scrollable = 'on';
+
+    plotGrid = uigridlayout(outer,[nPlotRows nPlotCols]);
+    plotGrid.Layout.Row = 1;
+    plotGrid.Layout.Column = 2;
+    plotGrid.Padding = [10 10 10 10];
+    plotGrid.ColumnSpacing = 8;
+
+    app.tire = tire;
+    app.defaults = tire;
+    app.paramSpec = paramSpec;
+    app.paramNames = paramNames;
+    app.paramRanges = paramRanges;
+    app.FzSweep = FzSweep;
+    app.IASweep = IASweep;
+    app.kappaSweep = kappaSweep;
+    app.vBelt = vBelt;
+    app.run72_SA0 = run72_SA0;
+    app.kappaData = kappaData;
+    app.FX = FX;
+    app.mode = mode;
+    app.controls = struct();
+    app.axesHandles = gobjects(0);
+    app.plotHandles = gobjects(0);
+
+    for n = 1:nParams
+        p = paramNames{n};
+        lims = paramRanges(n,:);
+        val = tire.(p);
+        valClamped = min(max(val,lims(1)),lims(2));
+
+        row = mod(n-1,nCtrlRows) + 1;
+        col = floor((n-1)/nCtrlRows) + 1;
+
+        paramPanel = uipanel(ctrlGrid);
+        paramPanel.Layout.Row = row;
+        paramPanel.Layout.Column = col;
+        paramPanel.Title = '';
+        paramPanel.BorderType = 'line';
+
+        paramGrid = uigridlayout(paramPanel,[2 2]);
+        paramGrid.RowHeight = {26, 40};
+        paramGrid.ColumnWidth = {'1x', 90};
+        paramGrid.RowSpacing = 4;
+        paramGrid.ColumnSpacing = 6;
+        paramGrid.Padding = [6 6 6 6];
+
+        lbl = uilabel(paramGrid);
+        lbl.Text = p;
+        lbl.HorizontalAlignment = 'left';
+        lbl.Layout.Row = 1;
+        lbl.Layout.Column = 1;
+
+        edt = uieditfield(paramGrid,'numeric');
+        edt.Value = valClamped;
+        edt.Limits = lims;
+        edt.RoundFractionalValues = 'off';
+        edt.Layout.Row = 1;
+        edt.Layout.Column = 2;
+
+        sld = uislider(paramGrid);
+        sld.Limits = lims;
+        sld.Value = valClamped;
+        sld.MajorTicksMode = 'auto';
+        sld.MinorTicks = [];
+        sld.Layout.Row = 2;
+        sld.Layout.Column = [1 2];
+
+        sld.ValueChangingFcn = @(src,event) sliderChangingLong(src,event,win,p,edt);
+        sld.ValueChangedFcn  = @(src,event) sliderChangedLong(src,event,win,p,edt);
+        edt.ValueChangedFcn  = @(src,event) editChangedLong(src,event,win,p,sld);
+
+        app.controls.(p).slider = sld;
+        app.controls.(p).edit = edt;
+    end
+
+    resetBtn = uibutton(ctrlGrid,'push');
+    resetBtn.Text = 'Reset defaults';
+    resetBtn.Layout.Row = nCtrlRows + 1;
+    resetBtn.Layout.Column = 1;
+    resetBtn.ButtonPushedFcn = @(src,event) resetDefaultsLong(win);
+
+    refreshBtn = uibutton(ctrlGrid,'push');
+    refreshBtn.Text = 'Refresh';
+    refreshBtn.Layout.Row = nCtrlRows + 1;
+    refreshBtn.Layout.Column = 2;
+    refreshBtn.ButtonPushedFcn = @(src,event) updateParameterPlotsLong(win);
+
+    switch mode
+        case "pureLongitudinal"
+            app.plotHandles = gobjects(length(FzSweep),1);
+            app.axesHandles = gobjects(length(FzSweep),1);
+
+            IA = 0;
+            alpha = zeros(length(kappaSweep),1);
+
+            for k = 1:length(FzSweep)
+                Fz = FzSweep(k);
+
+                ax = uiaxes(plotGrid);
+                ax.Layout.Row = 1;
+                ax.Layout.Column = k;
+                hold(ax,'on')
+                grid(ax,'on')
+
+                idx = find(run72_SA0(:,3)==IA & run72_SA0(:,4)==Fz,1);
+
+                if ~isempty(idx)
+                    startIndex = run72_SA0(idx,1);
+                    endIndex = run72_SA0(idx,2);
+
+                    scatter(ax, ...
+                        100*kappaData(startIndex:endIndex), ...
+                        FX(startIndex:endIndex), ...
+                        20, "magenta", 'x', 'DisplayName','Data');
+                end
+
+                out = unitire_solve(alpha, kappaSweep(:), 0, Fz, vBelt, tire);
+
+                app.plotHandles(k) = plot(ax, ...
+                    100*kappaSweep, out.Fx, ...
+                    'LineWidth', 1.5, ...
+                    'DisplayName','Model', ...
+                    'Color',[0,0,1]);
+
+                xlabel(ax,'Slip Ratio [%]')
+                ylabel(ax,'F_x [N]')
+                title(ax,"IA = 0 deg, Fz = " + num2str(Fz))
+                legend(ax,'Location','best')
+                hold(ax,'off')
+
+                app.axesHandles(k) = ax;
+            end
+
+        case "camberLongitudinal"
+            app.plotHandles = gobjects(length(IASweep), length(FzSweep));
+            app.axesHandles = gobjects(length(IASweep),1);
+            alpha = zeros(length(kappaSweep),1);
+
+            for i = 1:length(IASweep)
+                IA = IASweep(i);
+
+                ax = uiaxes(plotGrid);
+                ax.Layout.Row = 1;
+                ax.Layout.Column = i;
+                hold(ax,'on')
+                grid(ax,'on')
+
+                legendHandles = gobjects(length(FzSweep),1);
+                legendTexts = strings(length(FzSweep),1);
+                gamma = deg2rad(IA) * ones(length(kappaSweep),1);
+
+                for k = 1:length(FzSweep)
+                    Fz = FzSweep(k);
+
+                    idx = find(run72_SA0(:,3)==IA & run72_SA0(:,4)==Fz,1);
+
+                    out = unitire_solve(alpha, kappaSweep(:), -gamma, Fz, vBelt, tire);
+
+                    app.plotHandles(i,k) = plot(ax, ...
+                        100*kappaSweep, out.Fx, ...
+                        'LineWidth', 1.5);
+
+                    if ~isempty(idx)
+                        startIndex = run72_SA0(idx,1);
+                        endIndex = run72_SA0(idx,2);
+
+                        scatter(ax, ...
+                            100*kappaData(startIndex:endIndex), ...
+                            FX(startIndex:endIndex), ...
+                            20, app.plotHandles(i,k).Color, '.', ...
+                            'HandleVisibility','off');
+                    end
+
+                    legendHandles(k) = app.plotHandles(i,k);
+                    legendTexts(k) = "Fz = " + num2str(Fz);
+                end
+
+                xlabel(ax,'Slip Ratio [%]')
+                ylabel(ax,'F_x [N]')
+                title(ax,"IA = " + num2str(IA) + " deg")
+                legend(ax, legendHandles, legendTexts, 'Location','best')
+                hold(ax,'off')
+
+                app.axesHandles(i) = ax;
+            end
+    end
+
+    win.UserData = app;
+    updateParameterPlotsLong(win);
+end
+
+function sliderChangingLong(~, event, win, pname, edt)
+    app = win.UserData;
+    newVal = event.Value;
+
+    app.tire.(pname) = newVal;
+    win.UserData = app;
+
+    edt.Value = newVal;
+    updateParameterPlotsLong(win);
+end
+
+function sliderChangedLong(src, ~, win, pname, edt)
+    app = win.UserData;
+    newVal = src.Value;
+
+    app.tire.(pname) = newVal;
+    win.UserData = app;
+
+    edt.Value = newVal;
+    updateParameterPlotsLong(win);
+end
+
+function editChangedLong(src, ~, win, pname, sld)
+    app = win.UserData;
+
+    newVal = src.Value;
+    newVal = min(max(newVal, sld.Limits(1)), sld.Limits(2));
+
+    src.Value = newVal;
+    sld.Value = newVal;
+
+    app.tire.(pname) = newVal;
+    win.UserData = app;
+
+    updateParameterPlotsLong(win);
+end
+
+function resetDefaultsLong(win)
+    app = win.UserData;
+
+    for n = 1:numel(app.paramNames)
+        p = app.paramNames{n};
+        val = app.defaults.(p);
+        val = min(max(val, app.paramRanges(n,1)), app.paramRanges(n,2));
+
+        app.tire.(p) = val;
+        app.controls.(p).slider.Value = val;
+        app.controls.(p).edit.Value = val;
+    end
+
+    win.UserData = app;
+    updateParameterPlotsLong(win);
+end
+
+function updateParameterPlotsLong(win)
+    app = win.UserData;
+    alpha = zeros(length(app.kappaSweep),1);
+
+    switch app.mode
+        case "pureLongitudinal"
+            for k = 1:length(app.FzSweep)
+                Fz = app.FzSweep(k);
+                out = unitire_solve(alpha, app.kappaSweep(:), 0, Fz, app.vBelt, app.tire);
+                app.plotHandles(k).YData = out.Fx;
+            end
+
+        case "camberLongitudinal"
+            for i = 1:length(app.IASweep)
+                IA = app.IASweep(i);
+                gamma = deg2rad(IA) * ones(length(app.kappaSweep),1);
+
+                for k = 1:length(app.FzSweep)
+                    Fz = app.FzSweep(k);
+                    out = unitire_solve(alpha, app.kappaSweep(:), -gamma, Fz, app.vBelt, app.tire);
+                    app.plotHandles(i,k).YData = out.Fx;
+                end
+            end
+    end
+
+    drawnow limitrate
+end
+
+function [kappaData, FX] = getLongitudinalSignals(dataStruct)
+
+    names = fieldnames(dataStruct);
+
+    kappaCandidates = {'SL','SR','KAPPA','kappa','LONGSLIP','SlipRatio','slip_ratio'};
+    fxCandidates = {'FX','Fx','fx'};
+
+    kappaName = '';
+    fxName = '';
+
+    for i = 1:numel(kappaCandidates)
+        if ismember(kappaCandidates{i}, names)
+            kappaName = kappaCandidates{i};
+            break
+        end
+    end
+
+    for i = 1:numel(fxCandidates)
+        if ismember(fxCandidates{i}, names)
+            fxName = fxCandidates{i};
+            break
+        end
+    end
+
+    if isempty(kappaName)
+        error('Could not find a longitudinal slip-ratio channel in B2356run72.mat.')
+    end
+
+    if isempty(fxName)
+        error('Could not find an Fx channel in B2356run72.mat.')
+    end
+
+    kappaData = dataStruct.(kappaName);
+    FX = dataStruct.(fxName);
+
+    kappaData = kappaData(:);
+    FX = FX(:);
+
+    if max(abs(kappaData),[],'omitnan') > 5
+        kappaData = kappaData / 100;
+    end
 end
