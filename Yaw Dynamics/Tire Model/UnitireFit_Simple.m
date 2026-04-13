@@ -1,3 +1,6 @@
+tire = UnitireSimpleFit();
+
+save Hoosier_R20_Combined_Simple.mat tire
 function [tire, fitReport, fitData] = UnitireSimpleFit(opts)
 %UNITIRESIMPLEFIT Fit the simplified UniTire model to the TTC datasets.
 %
@@ -147,7 +150,7 @@ for i = 1:size(run72_comb, 1)
 
     idx = segmentIndices(run72_comb(i, 1), run72_comb(i, 2), opts.maxSamplesPerSegment);
     kappa = kappa_lon(idx);
-    alpha = deg2rad(run72_comb(i, 5)) * ones(size(kappa));
+    alpha = -deg2rad(run72_comb(i, 5)) * ones(size(kappa));
     Fz = run72_comb(i, 4) * ones(size(kappa));
     valid = isfinite(kappa) & isfinite(FX_lon(idx)) & isfinite(FY_lon(idx));
 
@@ -360,7 +363,7 @@ colors = lines(numel(FzLevels));
 
 for i = 1:numel(FzLevels)
     mask = fitData.lateral.Fz == FzLevels(i);
-    [alphaDeg, ord] = sort(rad2deg(-fitData.lateral.alpha(mask)));
+    [alphaDeg, ord] = sort(rad2deg(fitData.lateral.alpha(mask)));
     FyData = fitData.lateral.target(mask);
     FyData = FyData(ord) ./ FzLevels(i);
 
@@ -370,7 +373,7 @@ for i = 1:numel(FzLevels)
     kappa = zeros(size(alphaSweep));
     Fz = FzLevels(i) * ones(size(alphaSweep));
     omega = estimateOmegaHub(kappa, Fz, tire, fitData.vBelt);
-    out = unitire_simple_solve(-deg2rad(alphaSweep), kappa, Fz, omega, tire, []);
+    out = unitire_simple_solve(deg2rad(alphaSweep), kappa, Fz, omega, tire, []);
     plot(ax, alphaSweep, out.F_tire(:, 2) ./ FzLevels(i), 'Color', colors(i, :), 'LineWidth', 1.4, ...
         'HandleVisibility', 'off');
 end
@@ -412,7 +415,7 @@ for i = 1:numel(saLevels)
         12, colors(i, :), '.', 'DisplayName', sprintf('Data |SA|=%g', saLevels(i)));
 
     kappaSweep = linspace(min(fitData.combined.kappa(mask)), max(fitData.combined.kappa(mask)), 180).';
-    alpha = -deg2rad(saLevels(i)) * ones(size(kappaSweep));
+    alpha = deg2rad(saLevels(i)) * ones(size(kappaSweep));
     Fz = FzRef * ones(size(kappaSweep));
     omega = estimateOmegaHub(kappaSweep, Fz, tire, fitData.vBelt);
     out = unitire_simple_solve(alpha, kappaSweep, Fz, omega, tire, []);
@@ -577,6 +580,7 @@ if isempty(fyName)
     error('Could not find an Fy channel in the supplied data file.');
 end
 
+% TTC slip angle uses the opposite sign from the SAE convention used by the solver.
 SA = -dataStruct.(saName);
 FY = dataStruct.(fyName);
 SA = SA(:);
@@ -624,6 +628,8 @@ if isempty(mzName)
     error('Could not find an Mz channel in the supplied data file.');
 end
 
+% Convert TTC channels to SAE: positive slip angle is steer-right and
+% positive restoring aligning moment in TTC becomes negative Mz in SAE.
 SA = -dataStruct.(saName);
 MZ = dataStruct.(mzName);
 SA = SA(:);

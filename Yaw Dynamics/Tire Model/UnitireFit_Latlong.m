@@ -660,7 +660,7 @@ function createInteractiveCombinedSlipFitWindow(tire, FzSweep, IASweep, kappaSwe
             if SAabs == 0
                 alpha = zeros(length(kappaSweep),1);
             else
-                alpha = deg2rad(-SAabs) * ones(length(kappaSweep),1);
+                alpha = deg2rad(SAabs) * ones(length(kappaSweep),1);
             end
 
             ax = uiaxes(plotGrid);
@@ -941,10 +941,10 @@ function createInteractiveFitWindow(tire, FzSweep, IASweep, SASweep, vBelt, run8
 
                 out = unitire_solve(alpha, 0, 0, Fz, vBelt, tire);
 
-                scatter(ax, -SA(startIndex:endIndex), FY(startIndex:endIndex), ...
+                scatter(ax, SA(startIndex:endIndex), FY(startIndex:endIndex), ...
                     20, "magenta", 'x', 'DisplayName','Data');
 
-                app.plotHandles(k) = plot(ax, -SASweep, out.Fy, ...
+                app.plotHandles(k) = plot(ax, SASweep, out.Fy, ...
                     'LineWidth', 1.5, ...
                     'DisplayName','Model', ...
                     'Color',[0,0,1]);
@@ -1475,7 +1475,8 @@ function [SA, FY] = getLateralSignals(dataStruct)
         error('Could not find an Fy channel in the lateral data file.')
     end
 
-    SA = dataStruct.(saName);
+    % TTC slip angle uses the opposite sign from the SAE convention used by the solver.
+    SA = -dataStruct.(saName);
     FY = dataStruct.(fyName);
 
     SA = SA(:);

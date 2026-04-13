@@ -1,5 +1,9 @@
 function out = unitire_solve(alpha, kappa, gamma, Fz, Vx, tireModel)
 
+% Inputs/outputs use SAE tire coordinates:
+%   +x forward, +y right, +z down
+% Positive slip angle means the wheel is steered to the right.
+
 alpha = alpha(:).';
 kappa = kappa(:).';
 gamma = gamma(:).';
@@ -253,7 +257,7 @@ Re_safe(idx) = 1e-12;
 omega = (1 + kappa) .* Vx ./ Re_safe;
 
 out.Fx = Fx_ut;
-out.Fy = -Fy_ut;
+out.Fy = Fy_ut;
 out.Fz = Fz;
 out.Mx = zeros(1,N);
 out.My = zeros(1,N);

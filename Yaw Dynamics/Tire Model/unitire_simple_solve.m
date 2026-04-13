@@ -10,7 +10,8 @@ function out = unitire_simple_solve(alpha, kappa, Fz, omegaHub, tire, road)
 %
 % Inputs
 %   alpha      scalar, [1xN], or [Nx1]
-%              Slip angle [rad].
+%              Slip angle [rad], SAE convention.
+%              Positive alpha means the wheel is steered to the right.
 %
 %   kappa      scalar, [1xN], or [Nx1]
 %              Longitudinal slip ratio [-], with pure rolling at kappa = 0.
@@ -160,7 +161,8 @@ for i = 1:N
     Xc(i) = Fx / max(Kcx(i), tire.stiff_eps);
     Yc(i) = Fy / max(Kcy(i), tire.stiff_eps);
 
-    Mz = Fy * (Dx(i) + Xc(i)) - Fx * Yc(i);
+    % Report aligning moment in SAE tire axes so positive alpha -> negative Mz.
+    Mz = -(Fy * (Dx(i) + Xc(i)) - Fx * Yc(i));
 
     gamma_e = atan2(Fy / max(Kcy(i), tire.stiff_eps), Rl(i));
 

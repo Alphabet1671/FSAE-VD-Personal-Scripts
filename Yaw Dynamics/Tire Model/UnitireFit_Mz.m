@@ -658,7 +658,7 @@ function createInteractiveMzFitWindow(tire, FzSweep, IASweep, SASweep, vBelt, ru
 
                 out = unitire_solve(alpha, 0, gamma, Fz, vBelt, tire);
 
-                scatter(ax, -SA(startIndex:endIndex), MZ(startIndex:endIndex), ...
+                scatter(ax, SA(startIndex:endIndex), MZ(startIndex:endIndex), ...
                     20, "magenta", 'x', 'DisplayName', 'Data');
 
                 app.plotHandles(k) = plot(ax, SASweep, out.Mz, ...
@@ -703,7 +703,7 @@ function createInteractiveMzFitWindow(tire, FzSweep, IASweep, SASweep, vBelt, ru
                     out = unitire_solve(alpha, 0, gamma, Fz, vBelt, tire);
 
                     app.plotHandles(i,k) = plot(ax, SASweep, out.Mz, 'LineWidth', 1.5);
-                    scatter(ax, -SA(startIndex:endIndex), MZ(startIndex:endIndex), ...
+                    scatter(ax, SA(startIndex:endIndex), MZ(startIndex:endIndex), ...
                         20, app.plotHandles(i,k).Color, '.', ...
                         'HandleVisibility','off');
 
@@ -842,8 +842,10 @@ function [SA, MZ] = getMzSignals(dataStruct)
         error('Could not find an Mz channel in the lateral data file.')
     end
 
-    SA = dataStruct.(saName);
-    MZ = dataStruct.(mzName);
+    % Convert TTC channels to SAE: positive slip angle is steer-right and
+    % positive restoring aligning moment in TTC becomes negative Mz in SAE.
+    SA = -dataStruct.(saName);
+    MZ = -dataStruct.(mzName);
 
     SA = SA(:);
     MZ = MZ(:);
