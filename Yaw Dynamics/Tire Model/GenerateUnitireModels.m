@@ -1,6 +1,7 @@
 %% Some LLM, Mar 2026
 
-% Example zero-valued UniTire parameter files.
+% Example zero-valued UniTire parameter files for the simplified
+% zero-inclination UniTire model.
 % Every field is included, but all values are set to zero as placeholders.
 % Replace these with fitted tire-specific values before using the model.
 
@@ -109,10 +110,9 @@ tire.R3 = 0;
 
 % Shift term in the lateral-force-dependent loaded-radius increment:
 %   dRl_Fy = KRl * (Fy - Fy_shift)^2
-% Fy_shift may depend on load and camber. :contentReference[oaicite:24]{index=24}
+% In the simplified zero-inclination model, Fy_shift depends only on load.
 tire.Fy_shift0 = 0;
 tire.Fy_shiftFz = 0;
-tire.Fy_shiftGamma = 0;
 
 % Load-dependent coefficient KRl controlling how lateral force changes loaded radius. :contentReference[oaicite:25]{index=25}
 tire.KRl0 = 0;

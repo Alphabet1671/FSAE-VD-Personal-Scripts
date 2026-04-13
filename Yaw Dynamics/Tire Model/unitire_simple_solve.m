@@ -1,6 +1,7 @@
 function out = unitire_simple_solve(alpha, kappa, Fz, omegaHub, tire, road)
 % UNITIRE_STEADY
 % Steady-state UniTire-style tire model using direct SAE slip inputs.
+% This simplified form assumes zero inclination angle.
 %
 % SAE tire axes:
 %   +x forward
@@ -13,9 +14,6 @@ function out = unitire_simple_solve(alpha, kappa, Fz, omegaHub, tire, road)
 %
 %   kappa      scalar, [1xN], or [Nx1]
 %              Longitudinal slip ratio [-], with pure rolling at kappa = 0.
-%
-%   gamma      scalar, [1xN], or [Nx1]
-%              Camber / inclination angle [rad], positive in SAE sense.
 %
 %   Fz         scalar, [1xN], or [Nx1]
 %              Vertical load [N], positive downward.
@@ -35,7 +33,6 @@ function out = unitire_simple_solve(alpha, kappa, Fz, omegaHub, tire, road)
 %   out.Sx       [Nx1]
 %   out.Sy       [Nx1]
 %   out.alpha    [Nx1]
-%   out.gamma    [Nx1]
 %   out.mu_x     [Nx1]
 %   out.mu_y     [Nx1]
 %   out.Rl       [Nx1]
@@ -45,7 +42,7 @@ function out = unitire_simple_solve(alpha, kappa, Fz, omegaHub, tire, road)
 %   out.relaxation_length_y [Nx1]
 %   out.debug    struct of intermediate arrays
 
-if nargin < 7 || isempty(road)
+if nargin < 6 || isempty(road)
     road = struct();
 end
 
@@ -58,11 +55,10 @@ if ~isfield(road, 'musy'), road.musy = tire.musy; end
 if ~isfield(road, 'hy'),   road.hy   = tire.hy;   end
 if ~isfield(road, 'vmy'),  road.vmy  = tire.vmy;  end
 
-N = determineBatchSize1D(alpha, kappa, gamma, Fz, omegaHub);
+N = determineBatchSize1D(alpha, kappa, Fz, omegaHub);
 
 alpha    = expand1DInput(alpha,    N, 'alpha');
 kappa    = expand1DInput(kappa,    N, 'kappa');
-gamma    = expand1DInput(gamma,    N, 'gamma');
 Fz       = expand1DInput(Fz,       N, 'Fz');
 omegaHub = expand1DInput(omegaHub, N, 'omegaHub');
 
@@ -107,12 +103,11 @@ for i = 1:N
 
     Rl_Fz = tire.R1 + tire.R2 * Fzn(i) + tire.R3 * Fzn(i)^2;
 
-    dRl_gamma = abs(Rl_Fz) * gamma(i)^2;
-    Fy_shift = tire.Fy_shift0 + tire.Fy_shiftFz * Fzn(i) + tire.Fy_shiftGamma * gamma(i);
+    Fy_shift = tire.Fy_shift0 + tire.Fy_shiftFz * Fzn(i);
     KRl = tire.KRl0 + tire.KRl1 * Fzn(i) + tire.KRl2 * Fzn(i)^2;
     dRl_Fy = KRl * (0 - Fy_shift)^2;
 
-    Rl(i) = Rl_Fz + dRl_gamma + dRl_Fy;
+    Rl(i) = Rl_Fz + dRl_Fy;
     Rl(i) = max(Rl(i), 1e-4);
     Re(i) = Rl(i);
 
@@ -167,8 +162,7 @@ for i = 1:N
 
     Mz = Fy * (Dx(i) + Xc(i)) - Fx * Yc(i);
 
-    gamma_e = atan2( Fy / max(Kcy(i), tire.stiff_eps) + Rl(i) * sin(gamma(i)), ...
-                     Rl(i) * cos(gamma(i)) );
+    gamma_e = atan2(Fy / max(Kcy(i), tire.stiff_eps), Rl(i));
 
     K1 = tire.K11 + tire.K12 * Fzn(i) + tire.K13 * Fzn(i)^2;
     K2 = tire.K21 + tire.K22 * Fzn(i) + tire.K23 * Fzn(i)^2;
@@ -195,7 +189,6 @@ out.kappa = kappa(:);
 out.Sx = Sx;
 out.Sy = Sy;
 out.alpha = alpha(:);
-out.gamma = gamma(:);
 out.mu_x = mu_x;
 out.mu_y = mu_y;
 out.Rl = Rl;
