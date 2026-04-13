@@ -12,6 +12,8 @@ car.wheelbase = 1.53; % m
 car.CGx = 0.45; % ratio fwd
 car.CGh = 0.3; % m
 
+car.frontInertance = 0; % kg
+car.rearInertance = 0; % kg
 car.frontTireStiffness = 114000; % N/m
 car.frontTireDamping = 400; % Ns/m
 car.rearTireStiffness = 114000;

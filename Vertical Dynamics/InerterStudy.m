@@ -12,6 +12,8 @@ car.unsprungMass = 12; % kg
 car.wheelbase = 1.53; % m
 car.CGx = 0.45; % ratio fwd
 car.CGh = 0.3; % m
+car.frontInertance = 100; % kg
+car.rearInertance = 100; % kg
 
 car.frontTireStiffness = 114000; % N/m
 car.frontTireDamping = 400; % Ns/m
@@ -21,16 +23,14 @@ car.rearTireDamping = 400;
 
 targetWheelRate = 80000; % N/m
 
-baselineMass = car.sprungMass;
-baselineInertia = car.pitchInertia;
 springCurve = [0,1;0,targetWheelRate];
 
 inertanceSweep = 0:10:200;
 damping = 1000:500:10000;
 for i = 1:length(inertanceSweep)
     inertance = inertanceSweep(i);
-    car.sprungMass = baselineMass + 2*inertance;
-    car.pitchInertia = baselineInertia + inertance*(car.wheelbase*car.CGx)^2 + inertance*(car.wheelbase*(1-car.CGx))^2;
+    car.frontInertance = inertance;
+    car.rearInertance = inertance;
     parfor j = 1:length(damping)
         dampingCurve = [0,1;0,damping(j)];
         run = SingleRun(car, dampingCurve, dampingCurve, springCurve, springCurve);
