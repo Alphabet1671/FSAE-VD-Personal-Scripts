@@ -34,7 +34,7 @@ rearDamperCurve = SetDamperClick(damperTable, rearMR, 6, 6);
 
 %% Damper Settings Sweep
 for front = 1:11
-    for rear = 1:10
+    parfor rear = 1:11
         frontDamperCurve = SetDamperClick(damperTable, frontMR, front, front);
         rearDamperCurve = SetDamperClick(damperTable, rearMR, rear, rear);
         run = SingleRun(car, frontDamperCurve, rearDamperCurve, frontSpringCurve, rearSpringCurve);      
@@ -50,8 +50,8 @@ for front = 1:11
 end
 %% Data Cleanup
 
-minCPL = clip((frontMinCPL + rearMinCPL)/2,0,1);
-CPLV = clip((frontCPLV + rearCPLV)/2,0,0.05);
+minCPL = (frontMinCPL + rearMinCPL)/2;
+CPLV = (frontCPLV + rearCPLV)/2;
 
 %% plot
 contourLineCount = 25;

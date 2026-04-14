@@ -12,8 +12,7 @@ car.unsprungMass = 12; % kg
 car.wheelbase = 1.53; % m
 car.CGx = 0.45; % ratio fwd
 car.CGh = 0.3; % m
-car.frontInertance = 100; % kg
-car.rearInertance = 100; % kg
+
 
 car.frontTireStiffness = 114000; % N/m
 car.frontTireDamping = 400; % Ns/m
@@ -25,8 +24,8 @@ targetWheelRate = 80000; % N/m
 
 springCurve = [0,1;0,targetWheelRate];
 
-inertanceSweep = 0:10:200;
-damping = 1000:500:10000;
+inertanceSweep = 0:20:200;
+damping = 1000:500:8000;
 for i = 1:length(inertanceSweep)
     inertance = inertanceSweep(i);
     car.frontInertance = inertance;
@@ -41,9 +40,6 @@ for i = 1:length(inertanceSweep)
     end
 end
 %%
-cleanMinCPL = clip(minCPL, 0.9,1);
-cleanCPLV = clip(CPLV, 0,0.05);
-
 
 figure
 contourf(damping, inertanceSweep, zeta, 30);
@@ -54,7 +50,7 @@ colorbar("east");
 title("Heave Zeta");
 
 figure
-contourf(damping, inertanceSweep, cleanCPLV, 30);
+contourf(damping, inertanceSweep, CPLV, 30);
 ylabel("Additional Corner Inertance, kg");
 xlabel("Damper Damping Coefficient, Ns/m");
 grid on;
@@ -62,7 +58,7 @@ colorbar("east");
 title("Normalized RMS CPLV");
 
 figure
-contourf(damping, inertanceSweep, cleanMinCPL, 30);
+contourf(damping, inertanceSweep, minCPL, 30);
 ylabel("Additional Corner Inertance, kg");
 xlabel("Damper Damping Coefficient, Ns/m");
 grid on;
