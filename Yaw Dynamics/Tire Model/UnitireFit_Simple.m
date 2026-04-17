@@ -1,647 +1,905 @@
-tire = UnitireSimpleFit();
-
-save Hoosier_R20_Combined_Simple.mat tire
-function [tire, fitReport, fitData] = UnitireSimpleFit(opts)
-%UNITIRESIMPLEFIT Fit the simplified UniTire model to the TTC datasets.
+function UnitireFit_SimpleInteractive(matFile)
+%UNITIREFIT_SIMPLEINTERACTIVE Interactive tuning window for the simplified UniTire model.
 %
-% Uses the same TTC files and hard-coded segment indices as the existing
-% UnitireFit scripts, but only fits parameters that are observable in
-% unitire_simple_solve.m from the available steady-state channels.
-%
-% The simplified solver assumes zero inclination angle, so the fit uses
-% only the IA = 0 TTC segments.
+% Opens one consolidated fitting window for the simplified IA = 0 model.
 
-if nargin < 1 || isempty(opts)
-    opts = struct();
+if nargin < 1 || isempty(matFile)
+    matFile = fullfile(fileparts(mfilename('fullpath')), 'unitire_simple_fit.mat');
 end
 
-rootDir = fileparts(mfilename('fullpath'));
-opts = applyDefaults(opts, struct( ...
-    'latFile', fullfile(rootDir, 'TTC', 'B2356run8.mat'), ...
-    'lonFile', fullfile(rootDir, 'TTC', 'B2356run72.mat'), ...
-    'vBelt', 40.193 / 3.6, ...
-    'maxSamplesPerSegment', 180, ...
-    'plotResults', true, ...
-    'saveResults', true, ...
-    'saveFile', fullfile(rootDir, 'unitire_simple_fit.mat'), ...
-    'display', 'iter'));
-
-latDataRaw = load(opts.latFile);
-lonDataRaw = load(opts.lonFile);
-
-[SA_lat_deg, FY_lat] = getLateralSignals(latDataRaw);
-[~, MZ_lat] = getMzSignals(latDataRaw);
-[kappa_lon, FX_lon] = getLongitudinalSignals(lonDataRaw);
-[~, FY_lon] = getLateralSignals(lonDataRaw);
-
-[run8, run72_SA0, run72_comb] = getTtcSegmentTables();
-
-tire = createInitialSimpleTire();
-fitData = buildFitData( ...
-    SA_lat_deg, FY_lat, MZ_lat, kappa_lon, FX_lon, FY_lon, ...
-    run8, run72_SA0, run72_comb, tire, opts);
-
-fprintf('Prepared %d lateral-force, %d longitudinal-force, %d combined-slip, and %d Mz samples.\n', ...
-    numel(fitData.lateral.target), ...
-    numel(fitData.longitudinal.target), ...
-    numel(fitData.combined.fxTarget), ...
-    numel(fitData.mz.target));
-
-forceNames = { ...
-    'Kx_2','Kx_1','Kx_0', ...
-    'Ky_2','Ky_1','Ky_0', ...
-    'E1', ...
-    'mu0x','musx','hx','vmx', ...
-    'mu0y','musy','hy','vmy'};
-
-forceLB = [ ...
-         0, -2.0e4, 1.0e4, ...
-         0, -2.0e4, 1.0e4, ...
-     -0.5, ...
-      0.5,   0.2, 0.02, 0.02, ...
-      0.5,   0.2, 0.02, 0.02];
-
-forceUB = [ ...
-     2.0e4, 2.0e4, 1.2e5, ...
-     2.0e4, 2.0e4, 1.2e5, ...
-      4.0, ...
-      4.0,   3.0, 4.00, 3.00, ...
-      4.0,   3.0, 4.00, 3.00];
-
-forceX0 = [ ...
-    tire.Kx(1), tire.Kx(2), tire.Kx(3), ...
-    tire.Ky(1), tire.Ky(2), tire.Ky(3), ...
-    tire.E1, ...
-    tire.mu0x, tire.musx, tire.hx, tire.vmx, ...
-    tire.mu0y, tire.musy, tire.hy, tire.vmy];
-
-[forceFit, forceCost] = runBoundedFminsearch( ...
-    @(x) forceObjective(x, tire, fitData), ...
-    forceX0, forceLB, forceUB, forceNames, opts.display);
-tire = applyForceParameters(tire, forceFit);
-
-trailNames = {'Dx0_1','Dx0_0','De_1','De_0','D1_1','D1_0','D2_1','D2_0'};
-trailLB = [0, 0, -0.10, -0.10, 0, 0, 0, 0];
-trailUB = [0.30, 0.30,  0.10,  0.10, 8, 8, 8, 8];
-trailX0 = [tire.Dx0(1), tire.Dx0(2), tire.De(1), tire.De(2), tire.D1(1), tire.D1(2), tire.D2(1), tire.D2(2)];
-
-[trailFit, trailCost] = runBoundedFminsearch( ...
-    @(x) mzObjective(x, tire, fitData), ...
-    trailX0, trailLB, trailUB, trailNames, opts.display);
-tire = applyTrailParameters(tire, trailFit);
-
-fitReport = summarizeFit(tire, fitData, forceCost, trailCost);
-
-if opts.plotResults
-    plotFitSummary(tire, fitData);
+data = load(matFile);
+if ~isfield(data, 'tire')
+    error('Expected a ''tire'' struct in %s.', matFile)
+end
+if ~isfield(data, 'fitData')
+    error('Expected ''fitData'' in %s. Re-run UnitireFit_Simple.m if needed.', matFile)
 end
 
-if opts.saveResults
-    save(opts.saveFile, 'tire', 'fitReport', 'fitData');
-    fprintf('Saved fitted simplified model to %s\n', opts.saveFile);
+tire = data.tire;
+fitData = data.fitData;
+
+createInteractiveSimpleIntegratedWindow(tire, fitData, matFile);
+end
+
+function createInteractiveSimpleIntegratedWindow(tire, fitData, matFile)
+paramSpec = {
+    'Kx',   1, 'Kx(1)',   [0, 2.0e4];
+    'Kx',   2, 'Kx(2)',   [-2.0e4, 2.0e4];
+    'Kx',   3, 'Kx(3)',   [0, 1.2e5];
+    'Ky',   1, 'Ky(1)',   [0, 4.0e4];
+    'Ky',   2, 'Ky(2)',   [-4.0e4, 4.0e4];
+    'Ky',   3, 'Ky(3)',   [1.0e4, 1.2e5];
+    'E1',  [], 'E1',      [-0.5, 4.0];
+    'mu0x',[], 'mu0x',    [0.5, 4.0];
+    'musx',[], 'musx',    [0.2, 3.0];
+    'hx',  [], 'hx',      [-10, 10];
+    'vmx', [], 'vmx',     [0.02, 3.0];
+    'mu0y',[], 'mu0y',    [0.5, 4.0];
+    'musy',[], 'musy',    [0.2, 3.0];
+    'hy',  [], 'hy',      [-10, 10];
+    'vmy', [], 'vmy',     [0.02, 3.0];
+    'Dx0', 1, 'Dx0(1)',   [0, 0.30];
+    'Dx0', 2, 'Dx0(2)',   [0, 0.30];
+    'De',  1, 'De(1)',    [-0.10, 0.10];
+    'De',  2, 'De(2)',    [-0.10, 0.10];
+    'D1',  1, 'D1(1)',    [0, 8];
+    'D1',  2, 'D1(2)',    [0, 8];
+    'D2',  1, 'D2(1)',    [0, 8];
+    'D2',  2, 'D2(2)',    [0, 8];
+};
+
+app = createBaseApp(tire, fitData, paramSpec, "integrated");
+app.saveFile = matFile;
+win = createWindowShell('Simplified UniTire Fit', 2, 3, paramSpec);
+app = attachControlsToWindow(app, win, @sliderChangingSimple, @sliderChangedSimple, @editChangedSimple, @resetDefaultsSimple, @updateParameterPlotsSimpleIntegrated, @saveCurrentTireSimple);
+
+app.FzSweepLateral = unique(fitData.lateral.Fz).';
+app.FzSweepLongitudinal = unique(fitData.longitudinal.Fz).';
+app.FzSweepMz = unique(fitData.mz.Fz).';
+app.SAPlotList = [0, 3, 6];
+app.FzRef = max(unique([fitData.longitudinal.Fz; fitData.combined.Fz]));
+
+app.plotHandlesLateralModel = gobjects(numel(app.FzSweepLateral), 1);
+app.plotHandlesLateralData = gobjects(numel(app.FzSweepLateral), 1);
+app.plotHandlesLongitudinalModel = gobjects(numel(app.FzSweepLongitudinal), 1);
+app.plotHandlesLongitudinalData = gobjects(numel(app.FzSweepLongitudinal), 1);
+app.plotHandlesMzModel = gobjects(numel(app.FzSweepMz), 1);
+app.plotHandlesMzData = gobjects(numel(app.FzSweepMz), 1);
+app.plotHandlesFyNorm = gobjects(numel(app.SAPlotList), 1);
+app.plotHandlesFxNorm = gobjects(numel(app.SAPlotList), 1);
+app.plotHandlesFyFxModel = gobjects(numel(app.SAPlotList), 1);
+app.plotHandlesFyNormData = gobjects(numel(app.SAPlotList), 1);
+app.plotHandlesFxNormData = gobjects(numel(app.SAPlotList), 1);
+app.plotHandlesFyFxData = gobjects(numel(app.SAPlotList), 1);
+
+fzColors = lines(max([numel(app.FzSweepLateral), numel(app.FzSweepLongitudinal), numel(app.FzSweepMz)]));
+alphaColors = lines(numel(app.SAPlotList));
+alphaMarkers = {'o', 's', '^'};
+SASweep = linspace(0, 20, 201);
+kappaSweep = linspace(-0.2, 0.2, 201);
+
+axLat = uiaxes(app.plotGrid);
+axLat.Layout.Row = 1;
+axLat.Layout.Column = 1;
+hold(axLat, 'on'); grid(axLat, 'on');
+for k = 1:numel(app.FzSweepLateral)
+    Fz = app.FzSweepLateral(k);
+    mask = fitData.lateral.Fz == Fz;
+    [alphaDeg, ord] = sort(rad2deg(fitData.lateral.alpha(mask)));
+    FyData = fitData.lateral.target(mask); FyData = FyData(ord);
+    out = evaluateSimplePureLateral(tire, SASweep(:), Fz, fitData.vBelt);
+    app.plotHandlesLateralData(k) = scatter(axLat, alphaDeg, FyData, 20, fzColors(k, :), 'x');
+    app.plotHandlesLateralModel(k) = plot(axLat, SASweep, out.F_tire(:, 2), 'LineWidth', 1.5, 'Color', fzColors(k, :));
+end
+xlabel(axLat, 'Slip Angle [deg]'); ylabel(axLat, 'F_y [N]'); xlim(axLat, [0, 15]); title(axLat, 'Pure Lateral, IA = 0 deg');
+legend(axLat, buildLegendPairs(app.plotHandlesLateralModel, app.plotHandlesLateralData), buildPairLabels(app.FzSweepLateral, "Fz"), 'Location', 'best');
+
+axLon = uiaxes(app.plotGrid);
+axLon.Layout.Row = 1;
+axLon.Layout.Column = 2;
+hold(axLon, 'on'); grid(axLon, 'on');
+for k = 1:numel(app.FzSweepLongitudinal)
+    Fz = app.FzSweepLongitudinal(k);
+    mask = fitData.longitudinal.Fz == Fz;
+    [kappaData, ord] = sort(fitData.longitudinal.kappa(mask));
+    FxData = fitData.longitudinal.target(mask); FxData = FxData(ord);
+    out = evaluateSimplePureLongitudinal(tire, kappaSweep(:), Fz, fitData.vBelt);
+    app.plotHandlesLongitudinalData(k) = scatter(axLon, kappaData, FxData, 20, fzColors(k, :), 'x');
+    app.plotHandlesLongitudinalModel(k) = plot(axLon, kappaSweep, out.F_tire(:, 1), 'LineWidth', 1.5, 'Color', fzColors(k, :));
+end
+xlabel(axLon, 'Slip Ratio'); ylabel(axLon, 'F_x [N]'); title(axLon, 'Pure Longitudinal, IA = 0 deg');
+legend(axLon, buildLegendPairs(app.plotHandlesLongitudinalModel, app.plotHandlesLongitudinalData), buildPairLabels(app.FzSweepLongitudinal, "Fz"), 'Location', 'best');
+
+axMz = uiaxes(app.plotGrid);
+axMz.Layout.Row = 1;
+axMz.Layout.Column = 3;
+hold(axMz, 'on'); grid(axMz, 'on');
+for k = 1:numel(app.FzSweepMz)
+    Fz = app.FzSweepMz(k);
+    mask = fitData.mz.Fz == Fz;
+    [alphaDeg, ord] = sort(rad2deg(fitData.mz.alpha(mask)));
+    MzData = fitData.mz.target(mask); MzData = MzData(ord);
+    out = evaluateSimplePureLateral(tire, SASweep(:), Fz, fitData.vBelt);
+    app.plotHandlesMzData(k) = scatter(axMz, alphaDeg, MzData, 20, fzColors(k, :), 'x');
+    app.plotHandlesMzModel(k) = plot(axMz, SASweep, out.M_tire(:, 3), 'LineWidth', 1.5, 'Color', fzColors(k, :));
+end
+xlabel(axMz, 'Slip Angle [deg]'); ylabel(axMz, 'M_z [N m]'); title(axMz, 'Pure Mz, IA = 0 deg');
+legend(axMz, buildLegendPairs(app.plotHandlesMzModel, app.plotHandlesMzData), buildPairLabels(app.FzSweepMz, "Fz"), 'Location', 'best');
+
+axFy = uiaxes(app.plotGrid);
+axFy.Layout.Row = 2; axFy.Layout.Column = 1;
+hold(axFy, 'on'); grid(axFy, 'on');
+
+axFx = uiaxes(app.plotGrid);
+axFx.Layout.Row = 2; axFx.Layout.Column = 2;
+hold(axFx, 'on'); grid(axFx, 'on');
+
+axEllipse = uiaxes(app.plotGrid);
+axEllipse.Layout.Row = 2; axEllipse.Layout.Column = 3;
+hold(axEllipse, 'on'); grid(axEllipse, 'on');
+
+legendHandlesFy = gobjects(2 * numel(app.SAPlotList), 1);
+legendHandlesFx = gobjects(2 * numel(app.SAPlotList), 1);
+legendHandlesEllipse = gobjects(2 * numel(app.SAPlotList), 1);
+legendTextsFy = strings(2 * numel(app.SAPlotList), 1);
+legendTextsFx = strings(2 * numel(app.SAPlotList), 1);
+legendTextsEllipse = strings(2 * numel(app.SAPlotList), 1);
+
+for j = 1:numel(app.SAPlotList)
+    SAabs = app.SAPlotList(j);
+    thisColor = alphaColors(j, :);
+    thisMarker = alphaMarkers{j};
+    out = evaluateSimpleCombinedSlip(tire, kappaSweep(:), SAabs, app.FzRef, fitData.vBelt);
+    [kappaData, FxDataNorm, FyDataNorm] = getSimpleCombinedSlipCurveNormalized(fitData, app.FzRef, SAabs);
+
+    app.plotHandlesFyNorm(j) = plot(axFy, kappaSweep, out.F_tire(:, 2) ./ app.FzRef, 'LineWidth', 1.5, 'Color', thisColor);
+    app.plotHandlesFyNormData(j) = scatter(axFy, kappaData, FyDataNorm, 24, 'Marker', thisMarker, 'MarkerEdgeColor', thisColor, 'MarkerFaceColor', thisColor, 'MarkerFaceAlpha', 0.30, 'MarkerEdgeAlpha', 0.70);
+    legendHandlesFy(2*j-1) = app.plotHandlesFyNorm(j); legendTextsFy(2*j-1) = "Model \alpha = " + num2str(SAabs) + " deg";
+    legendHandlesFy(2*j) = app.plotHandlesFyNormData(j); legendTextsFy(2*j) = "Data \alpha = " + num2str(SAabs) + " deg";
+
+    app.plotHandlesFxNorm(j) = plot(axFx, kappaSweep, out.F_tire(:, 1) ./ app.FzRef, 'LineWidth', 1.5, 'Color', thisColor);
+    app.plotHandlesFxNormData(j) = scatter(axFx, kappaData, FxDataNorm, 24, 'Marker', thisMarker, 'MarkerEdgeColor', thisColor, 'MarkerFaceColor', thisColor, 'MarkerFaceAlpha', 0.30, 'MarkerEdgeAlpha', 0.70);
+    legendHandlesFx(2*j-1) = app.plotHandlesFxNorm(j); legendTextsFx(2*j-1) = "Model \alpha = " + num2str(SAabs) + " deg";
+    legendHandlesFx(2*j) = app.plotHandlesFxNormData(j); legendTextsFx(2*j) = "Data \alpha = " + num2str(SAabs) + " deg";
+
+    app.plotHandlesFyFxModel(j) = plot(axEllipse, out.F_tire(:, 1), out.F_tire(:, 2), 'LineWidth', 1.5, 'Color', thisColor);
+    app.plotHandlesFyFxData(j) = scatter(axEllipse, FxDataNorm .* app.FzRef, FyDataNorm .* app.FzRef, 24, 'Marker', thisMarker, 'MarkerEdgeColor', thisColor, 'MarkerFaceColor', thisColor, 'MarkerFaceAlpha', 0.30, 'MarkerEdgeAlpha', 0.70);
+    legendHandlesEllipse(2*j-1) = app.plotHandlesFyFxModel(j); legendTextsEllipse(2*j-1) = "Model \alpha = " + num2str(SAabs) + " deg";
+    legendHandlesEllipse(2*j) = app.plotHandlesFyFxData(j); legendTextsEllipse(2*j) = "Data \alpha = " + num2str(SAabs) + " deg";
+end
+xlabel(axFy, 'Slip Ratio'); ylabel(axFy, 'F_y / F_z'); title(axFy, "Fy/Fz-kappa, IA = 0 deg, Fz = " + num2str(app.FzRef)); legend(axFy, legendHandlesFy, legendTextsFy, 'Location', 'best');
+xlabel(axFx, 'Slip Ratio'); ylabel(axFx, 'F_x / F_z'); title(axFx, "Fx/Fz-kappa, IA = 0 deg, Fz = " + num2str(app.FzRef)); legend(axFx, legendHandlesFx, legendTextsFx, 'Location', 'best');
+xlabel(axEllipse, 'F_x [N]'); ylabel(axEllipse, 'F_y [N]'); title(axEllipse, "Fy-Fx, IA = 0 deg, Fz = " + num2str(app.FzRef)); legend(axEllipse, legendHandlesEllipse, legendTextsEllipse, 'Location', 'best'); axis(axEllipse, 'equal');
+
+app.axesHandles = [axLat; axLon; axMz; axFy; axFx; axEllipse];
+win.UserData = app;
+updateParameterPlotsSimpleIntegrated(win);
+end
+
+function labels = buildPairLabels(values, prefix)
+labels = strings(2 * numel(values), 1);
+for i = 1:numel(values)
+    labels(2*i-1) = "Model " + prefix + " = " + num2str(values(i));
+    labels(2*i) = "Data " + prefix + " = " + num2str(values(i));
 end
 end
 
-function fitData = buildFitData( ...
-    SA_lat_deg, FY_lat, MZ_lat, kappa_lon, FX_lon, FY_lon, ...
-    run8, run72_SA0, run72_comb, tire0, opts)
-
-fitData.lateral = struct('alpha', [], 'kappa', [], 'Fz', [], 'target', []);
-fitData.longitudinal = struct('alpha', [], 'kappa', [], 'Fz', [], 'target', []);
-fitData.combined = struct('alpha', [], 'kappa', [], 'Fz', [], 'fxTarget', [], 'fyTarget', []);
-fitData.mz = struct('alpha', [], 'kappa', [], 'Fz', [], 'target', []);
-
-for i = 1:size(run8, 1)
-    IA = run8(i, 3);
-    if IA ~= 0
-        continue
-    end
-
-    idx = segmentIndices(run8(i, 1), run8(i, 2), opts.maxSamplesPerSegment);
-    alphaFy = deg2rad(SA_lat_deg(idx));
-    alphaMz = deg2rad(SA_lat_deg(idx));
-    Fz = run8(i, 4) * ones(size(alphaFy));
-    validFy = isfinite(alphaFy) & isfinite(FY_lat(idx));
-    validMz = isfinite(alphaMz) & isfinite(MZ_lat(idx));
-
-    fitData.lateral = appendForceSet(fitData.lateral, alphaFy(validFy), zeros(nnz(validFy), 1), Fz(validFy), FY_lat(idx(validFy)));
-    fitData.mz = appendForceSet(fitData.mz, alphaMz(validMz), zeros(nnz(validMz), 1), Fz(validMz), MZ_lat(idx(validMz)));
+function handles = buildLegendPairs(modelHandles, dataHandles)
+handles = gobjects(2 * numel(modelHandles), 1);
+for i = 1:numel(modelHandles)
+    handles(2*i-1) = modelHandles(i);
+    handles(2*i) = dataHandles(i);
+end
 end
 
-for i = 1:size(run72_SA0, 1)
-    IA = run72_SA0(i, 3);
-    if IA ~= 0
-        continue
-    end
-
-    idx = segmentIndices(run72_SA0(i, 1), run72_SA0(i, 2), opts.maxSamplesPerSegment);
-    kappa = kappa_lon(idx);
-    Fz = run72_SA0(i, 4) * ones(size(kappa));
-    valid = isfinite(kappa) & isfinite(FX_lon(idx));
-    fitData.longitudinal = appendForceSet( ...
-        fitData.longitudinal, zeros(nnz(valid), 1), kappa(valid), Fz(valid), FX_lon(idx(valid)));
+function createInteractiveSimpleLateralWindow(tire, fitData, mode)
+switch mode
+    case "pureLateral"
+        paramSpec = {
+            'Ky',   1, 'Ky(1)',   [0, 2.0e4];
+            'Ky',   2, 'Ky(2)',   [-2.0e4, 2.0e4];
+            'Ky',   3, 'Ky(3)',   [1.0e4, 1.2e5];
+            'E1',  [], 'E1',      [-0.5, 4.0];
+            'mu0y',[], 'mu0y',    [0.5, 4.0];
+            'musy',[], 'musy',    [0.2, 3.0];
+            'hy',  [], 'hy',      [0.02, 4.0];
+            'vmy', [], 'vmy',     [0.02, 3.0];
+        };
+        winName = 'Pure Lateral Fit';
+        nPlotRows = 1;
+        nPlotCols = numel(unique(fitData.lateral.Fz));
 end
 
-for i = 1:size(run72_comb, 1)
-    IA = run72_comb(i, 3);
-    if IA ~= 0
-        continue
-    end
+app = createBaseApp(tire, fitData, paramSpec, mode);
+win = createWindowShell(winName, nPlotRows, nPlotCols, paramSpec);
+app = attachControlsToWindow(app, win, @sliderChangingSimple, @sliderChangedSimple, @editChangedSimple, @resetDefaultsSimple, @updateParameterPlotsSimpleLateral);
 
-    idx = segmentIndices(run72_comb(i, 1), run72_comb(i, 2), opts.maxSamplesPerSegment);
-    kappa = kappa_lon(idx);
-    alpha = -deg2rad(run72_comb(i, 5)) * ones(size(kappa));
-    Fz = run72_comb(i, 4) * ones(size(kappa));
-    valid = isfinite(kappa) & isfinite(FX_lon(idx)) & isfinite(FY_lon(idx));
+FzSweep = unique(fitData.lateral.Fz).';
+app.FzSweep = FzSweep;
+app.plotHandles = gobjects(numel(FzSweep), 1);
+app.axesHandles = gobjects(numel(FzSweep), 1);
 
-    fitData.combined.alpha = [fitData.combined.alpha; alpha(valid)];
-    fitData.combined.kappa = [fitData.combined.kappa; kappa(valid)];
-    fitData.combined.Fz = [fitData.combined.Fz; Fz(valid)];
-    fitData.combined.fxTarget = [fitData.combined.fxTarget; FX_lon(idx(valid))];
-    fitData.combined.fyTarget = [fitData.combined.fyTarget; FY_lon(idx(valid))];
-end
+SASweep = linspace(0, 20, 201);
+for k = 1:numel(FzSweep)
+    Fz = FzSweep(k);
+    ax = uiaxes(app.plotGrid);
+    ax.Layout.Row = 1;
+    ax.Layout.Column = k;
+    hold(ax, 'on')
+    grid(ax, 'on')
 
-fitData.referenceTire = tire0;
-fitData.vBelt = opts.vBelt;
-end
-
-function data = appendForceSet(data, alpha, kappa, Fz, target)
-data.alpha = [data.alpha; alpha(:)];
-data.kappa = [data.kappa; kappa(:)];
-data.Fz = [data.Fz; Fz(:)];
-data.target = [data.target; target(:)];
-end
-
-function cost = forceObjective(x, tireBase, fitData)
-tire = applyForceParameters(tireBase, x);
-
-Fy = predictForceChannel(tire, fitData.lateral, fitData.vBelt, 2);
-Fx = predictForceChannel(tire, fitData.longitudinal, fitData.vBelt, 1);
-[FxComb, FyComb] = predictCombinedChannels(tire, fitData.combined, fitData.vBelt);
-
-rLat = (Fy - fitData.lateral.target) ./ max(fitData.lateral.Fz, 1);
-rLon = (Fx - fitData.longitudinal.target) ./ max(fitData.longitudinal.Fz, 1);
-rCombFx = (FxComb - fitData.combined.fxTarget) ./ max(fitData.combined.Fz, 1);
-rCombFy = (FyComb - fitData.combined.fyTarget) ./ max(fitData.combined.Fz, 1);
-
-cost = rmsSafe(rLat) + rmsSafe(rLon) + 0.75 * rmsSafe(rCombFx) + 0.75 * rmsSafe(rCombFy);
-end
-
-function cost = mzObjective(x, tireBase, fitData)
-tire = applyTrailParameters(tireBase, x);
-Mz = predictMomentChannel(tire, fitData.mz, fitData.vBelt, 3);
-scale = max(fitData.mz.Fz * max(tire.R1, 1e-3), 1);
-cost = rmsSafe((Mz - fitData.mz.target) ./ scale);
-end
-
-function channel = predictForceChannel(tire, data, vBelt, forceIndex)
-omega = estimateOmegaHub(data.kappa, data.Fz, tire, vBelt);
-out = unitire_simple_solve(data.alpha, data.kappa, data.Fz, omega, tire, []);
-channel = out.F_tire(:, forceIndex);
-end
-
-function [Fx, Fy] = predictCombinedChannels(tire, data, vBelt)
-omega = estimateOmegaHub(data.kappa, data.Fz, tire, vBelt);
-out = unitire_simple_solve(data.alpha, data.kappa, data.Fz, omega, tire, []);
-Fx = out.F_tire(:, 1);
-Fy = out.F_tire(:, 2);
-end
-
-function channel = predictMomentChannel(tire, data, vBelt, momentIndex)
-omega = estimateOmegaHub(data.kappa, data.Fz, tire, vBelt);
-out = unitire_simple_solve(data.alpha, data.kappa, data.Fz, omega, tire, []);
-channel = out.M_tire(:, momentIndex);
-end
-
-function omega = estimateOmegaHub(kappa, Fz, tire, vBelt)
-Fzn = Fz ./ max(tire.Fz_rated, eps);
-Re = polyvalLocal(tire.R1, tire.R2, tire.R3, Fzn);
-Re = max(Re, 1e-4);
-omega = abs((1 + kappa(:)) .* vBelt ./ Re(:));
-end
-
-function value = polyvalLocal(c0, c1, c2, x)
-value = c0 + c1 .* x + c2 .* x.^2;
-end
-
-function tire = createInitialSimpleTire()
-tire = struct();
-
-tire.Fz_rated = 660;
-tire.Kx = [8.0e3, -1.0e4, 5.2e4];
-tire.Ky = [6.0e3, -1.2e4, 3.8e4];
-tire.Kcx = 3.0e5;
-tire.Kcy = 2.0e5;
-tire.E1 = 0.8;
-
-tire.Dx0 = [0.00, 0.06];
-tire.De = [0.00, 0.00];
-tire.D1 = [0.00, 1.20];
-tire.D2 = [0.00, 0.30];
-
-tire.mu0x = 2.0;
-tire.musx = 1.7;
-tire.hx = 0.6;
-tire.vmx = 0.25;
-
-tire.mu0y = 2.3;
-tire.musy = 2.0;
-tire.hy = 0.5;
-tire.vmy = 0.18;
-
-tire.K11 = 0;
-tire.K12 = 0;
-tire.K13 = 0;
-tire.K21 = 0;
-tire.K22 = 0;
-tire.K23 = 0;
-tire.MxR1 = 0;
-tire.MxR2 = 0;
-tire.MxR3 = 0;
-
-tire.R1 = 0.2045;
-tire.R2 = -0.008316;
-tire.R3 = 5.673291e-5;
-
-tire.Fy_shift0 = 0;
-tire.Fy_shiftFz = 0;
-tire.KRl0 = 0;
-tire.KRl1 = 0;
-tire.KRl2 = 0;
-
-tire.frr0 = 0;
-tire.frr1 = 0;
-tire.frr2 = 0;
-tire.hrr = 0;
-
-tire.omega_cr = 1.0e6;
-tire.omega_eps = 1.0e-6;
-tire.vroll_min = 0.10;
-tire.force_eps = 1.0;
-tire.stiff_eps = 1.0;
-tire.slip_eps = 1.0e-9;
-end
-
-function tire = applyForceParameters(tire, x)
-tire.Kx = x(1:3);
-tire.Ky = x(4:6);
-tire.E1 = x(7);
-tire.mu0x = x(8);
-tire.musx = x(9);
-tire.hx = x(10);
-tire.vmx = x(11);
-tire.mu0y = x(12);
-tire.musy = x(13);
-tire.hy = x(14);
-tire.vmy = x(15);
-end
-
-function tire = applyTrailParameters(tire, x)
-tire.Dx0 = x(1:2);
-tire.De = x(3:4);
-tire.D1 = x(5:6);
-tire.D2 = x(7:8);
-end
-
-function report = summarizeFit(tire, fitData, forceCost, trailCost)
-Fy = predictForceChannel(tire, fitData.lateral, fitData.vBelt, 2);
-Fx = predictForceChannel(tire, fitData.longitudinal, fitData.vBelt, 1);
-[FxComb, FyComb] = predictCombinedChannels(tire, fitData.combined, fitData.vBelt);
-Mz = predictMomentChannel(tire, fitData.mz, fitData.vBelt, 3);
-
-report = struct();
-report.forceCost = forceCost;
-report.trailCost = trailCost;
-report.lateralFyRMSE_N = sqrt(mean((Fy - fitData.lateral.target).^2, 'omitnan'));
-report.longitudinalFxRMSE_N = sqrt(mean((Fx - fitData.longitudinal.target).^2, 'omitnan'));
-report.combinedFxRMSE_N = sqrt(mean((FxComb - fitData.combined.fxTarget).^2, 'omitnan'));
-report.combinedFyRMSE_N = sqrt(mean((FyComb - fitData.combined.fyTarget).^2, 'omitnan'));
-report.mzRMSE_Nm = sqrt(mean((Mz - fitData.mz.target).^2, 'omitnan'));
-end
-
-function plotFitSummary(tire, fitData)
-figure('Name', 'Unitire Simple Fit', 'Color', 'w');
-tiledlayout(2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
-
-nexttile
-hold on
-plotLateralComparison(gca, tire, fitData);
-title('Pure Lateral Fy')
-xlabel('Slip angle [deg]')
-ylabel('Fy / Fz [-]')
-grid on
-
-nexttile
-hold on
-plotLongitudinalComparison(gca, tire, fitData);
-title('Pure Longitudinal Fx')
-xlabel('Slip ratio [-]')
-ylabel('Fx / Fz [-]')
-grid on
-
-nexttile
-hold on
-plotCombinedComparison(gca, tire, fitData);
-title('Combined Slip')
-xlabel('Fx / Fz [-]')
-ylabel('Fy / Fz [-]')
-grid on
-axis equal
-
-nexttile
-hold on
-plotMzComparison(gca, tire, fitData);
-title('Pure Lateral Mz')
-xlabel('Slip angle [deg]')
-ylabel('Mz [Nm]')
-grid on
-end
-
-function plotLateralComparison(ax, tire, fitData)
-FzLevels = unique(fitData.lateral.Fz).';
-colors = lines(numel(FzLevels));
-
-for i = 1:numel(FzLevels)
-    mask = fitData.lateral.Fz == FzLevels(i);
+    mask = fitData.lateral.Fz == Fz;
     [alphaDeg, ord] = sort(rad2deg(fitData.lateral.alpha(mask)));
     FyData = fitData.lateral.target(mask);
-    FyData = FyData(ord) ./ FzLevels(i);
+    FyData = FyData(ord);
 
-    scatter(ax, alphaDeg, FyData, 12, colors(i, :), '.', 'DisplayName', sprintf('Data %dN', FzLevels(i)));
+    out = evaluateSimplePureLateral(tire, SASweep(:), Fz, fitData.vBelt);
+    scatter(ax, alphaDeg, FyData, 20, "magenta", 'x', 'DisplayName', 'Data');
+    app.plotHandles(k) = plot(ax, SASweep, out.F_tire(:, 2), 'LineWidth', 1.5, 'DisplayName', 'Model', 'Color', [0 0 1]);
 
-    alphaSweep = linspace(min(alphaDeg), max(alphaDeg), 180).';
-    kappa = zeros(size(alphaSweep));
-    Fz = FzLevels(i) * ones(size(alphaSweep));
-    omega = estimateOmegaHub(kappa, Fz, tire, fitData.vBelt);
-    out = unitire_simple_solve(deg2rad(alphaSweep), kappa, Fz, omega, tire, []);
-    plot(ax, alphaSweep, out.F_tire(:, 2) ./ FzLevels(i), 'Color', colors(i, :), 'LineWidth', 1.4, ...
-        'HandleVisibility', 'off');
+    xlabel(ax, 'Slip Angle [deg]')
+    ylabel(ax, 'F_y [N]')
+    xlim(ax, [0, 15])
+    title(ax, "IA = 0 deg, Fz = " + num2str(Fz))
+    legend(ax, 'Location', 'best')
+    hold(ax, 'off')
+
+    app.axesHandles(k) = ax;
 end
-legend(ax, 'Location', 'best')
+
+win.UserData = app;
+updateParameterPlotsSimpleLateral(win);
 end
 
-function plotLongitudinalComparison(ax, tire, fitData)
-FzLevels = unique(fitData.longitudinal.Fz).';
-colors = lines(numel(FzLevels));
+function createInteractiveSimpleLongitudinalWindow(tire, fitData, mode)
+switch mode
+    case "pureLongitudinal"
+        paramSpec = {
+            'Kx',   1, 'Kx(1)',   [0, 2.0e4];
+            'Kx',   2, 'Kx(2)',   [-2.0e4, 2.0e4];
+            'Kx',   3, 'Kx(3)',   [1.0e4, 1.2e5];
+            'E1',  [], 'E1',      [-0.5, 4.0];
+            'mu0x',[], 'mu0x',    [0.5, 4.0];
+            'musx',[], 'musx',    [0.2, 3.0];
+            'hx',  [], 'hx',      [0.02, 4.0];
+            'vmx', [], 'vmx',     [0.02, 3.0];
+        };
+        winName = 'Pure Longitudinal Fit';
+        nPlotRows = 1;
+        nPlotCols = numel(unique(fitData.longitudinal.Fz));
+end
 
-for i = 1:numel(FzLevels)
-    mask = fitData.longitudinal.Fz == FzLevels(i);
-    [kappa, ord] = sort(fitData.longitudinal.kappa(mask));
+app = createBaseApp(tire, fitData, paramSpec, mode);
+win = createWindowShell(winName, nPlotRows, nPlotCols, paramSpec);
+app = attachControlsToWindow(app, win, @sliderChangingSimple, @sliderChangedSimple, @editChangedSimple, @resetDefaultsSimple, @updateParameterPlotsSimpleLongitudinal);
+
+FzSweep = unique(fitData.longitudinal.Fz).';
+app.FzSweep = FzSweep;
+app.plotHandles = gobjects(numel(FzSweep), 1);
+app.axesHandles = gobjects(numel(FzSweep), 1);
+
+kappaSweep = linspace(-0.2, 0.2, 201);
+for k = 1:numel(FzSweep)
+    Fz = FzSweep(k);
+    ax = uiaxes(app.plotGrid);
+    ax.Layout.Row = 1;
+    ax.Layout.Column = k;
+    hold(ax, 'on')
+    grid(ax, 'on')
+
+    mask = fitData.longitudinal.Fz == Fz;
+    [kappaData, ord] = sort(fitData.longitudinal.kappa(mask));
     FxData = fitData.longitudinal.target(mask);
-    FxData = FxData(ord) ./ FzLevels(i);
+    FxData = FxData(ord);
 
-    scatter(ax, kappa, FxData, 12, colors(i, :), '.', 'DisplayName', sprintf('Data %dN', FzLevels(i)));
+    out = evaluateSimplePureLongitudinal(tire, kappaSweep(:), Fz, fitData.vBelt);
+    scatter(ax, kappaData, FxData, 20, "magenta", 'x', 'DisplayName', 'Data');
+    app.plotHandles(k) = plot(ax, kappaSweep, out.F_tire(:, 1), 'LineWidth', 1.5, 'DisplayName', 'Model', 'Color', [0 0 1]);
 
-    kappaSweep = linspace(min(kappa), max(kappa), 180).';
-    alpha = zeros(size(kappaSweep));
-    Fz = FzLevels(i) * ones(size(kappaSweep));
-    omega = estimateOmegaHub(kappaSweep, Fz, tire, fitData.vBelt);
-    out = unitire_simple_solve(alpha, kappaSweep, Fz, omega, tire, []);
-    plot(ax, kappaSweep, out.F_tire(:, 1) ./ FzLevels(i), 'Color', colors(i, :), 'LineWidth', 1.4, ...
-        'HandleVisibility', 'off');
-end
-legend(ax, 'Location', 'best')
-end
+    xlabel(ax, 'Slip Ratio')
+    ylabel(ax, 'F_x [N]')
+    title(ax, "IA = 0 deg, Fz = " + num2str(Fz))
+    legend(ax, 'Location', 'best')
+    hold(ax, 'off')
 
-function plotCombinedComparison(ax, tire, fitData)
-saLevels = unique(abs(rad2deg(fitData.combined.alpha))).';
-colors = lines(numel(saLevels));
-
-for i = 1:numel(saLevels)
-    mask = abs(rad2deg(fitData.combined.alpha)) == saLevels(i) | (saLevels(i) == 0 & fitData.combined.alpha == 0);
-    FzRef = max(fitData.combined.Fz(mask), [], 'omitnan');
-    scatter(ax, fitData.combined.fxTarget(mask) ./ fitData.combined.Fz(mask), ...
-        fitData.combined.fyTarget(mask) ./ fitData.combined.Fz(mask), ...
-        12, colors(i, :), '.', 'DisplayName', sprintf('Data |SA|=%g', saLevels(i)));
-
-    kappaSweep = linspace(min(fitData.combined.kappa(mask)), max(fitData.combined.kappa(mask)), 180).';
-    alpha = deg2rad(saLevels(i)) * ones(size(kappaSweep));
-    Fz = FzRef * ones(size(kappaSweep));
-    omega = estimateOmegaHub(kappaSweep, Fz, tire, fitData.vBelt);
-    out = unitire_simple_solve(alpha, kappaSweep, Fz, omega, tire, []);
-    plot(ax, out.F_tire(:, 1) ./ FzRef, out.F_tire(:, 2) ./ FzRef, 'Color', colors(i, :), 'LineWidth', 1.4, ...
-        'HandleVisibility', 'off');
-end
-legend(ax, 'Location', 'best')
+    app.axesHandles(k) = ax;
 end
 
-function plotMzComparison(ax, tire, fitData)
-FzLevels = unique(fitData.mz.Fz).';
-colors = lines(numel(FzLevels));
+win.UserData = app;
+updateParameterPlotsSimpleLongitudinal(win);
+end
 
-for i = 1:numel(FzLevels)
-    mask = fitData.mz.Fz == FzLevels(i);
+function createInteractiveSimpleCombinedSlipWindow(tire, fitData, mode)
+switch mode
+    case "combinedSlip"
+        % Combined-slip uses the same simplified-model parameters already
+        % exposed in the pure-slip windows, so do not duplicate sliders.
+        paramSpec = cell(0, 4);
+        winName = 'Combined Slip Fit';
+        nPlotRows = 1;
+        nPlotCols = 3;
+end
+
+app = createBaseApp(tire, fitData, paramSpec, mode);
+win = createWindowShell(winName, nPlotRows, nPlotCols, paramSpec);
+app = attachControlsToWindow(app, win, @sliderChangingSimple, @sliderChangedSimple, @editChangedSimple, @resetDefaultsSimple, @updateParameterPlotsSimpleCombined);
+
+app.SAPlotList = [0, 3, 6];
+app.FzRef = max(unique([fitData.longitudinal.Fz; fitData.combined.Fz]));
+app.plotHandlesFyNorm = gobjects(numel(app.SAPlotList), 1);
+app.plotHandlesFxNorm = gobjects(numel(app.SAPlotList), 1);
+app.plotHandlesFyFxModel = gobjects(numel(app.SAPlotList), 1);
+app.plotHandlesFyNormData = gobjects(numel(app.SAPlotList), 1);
+app.plotHandlesFxNormData = gobjects(numel(app.SAPlotList), 1);
+app.plotHandlesFyFxData = gobjects(numel(app.SAPlotList), 1);
+app.axesHandles = gobjects(3, 1);
+
+alphaColors = lines(numel(app.SAPlotList));
+alphaMarkers = {'o', 's', '^'};
+kappaSweep = linspace(-0.2, 0.2, 201);
+
+axFy = uiaxes(app.plotGrid);
+axFy.Layout.Row = 1;
+axFy.Layout.Column = 1;
+hold(axFy, 'on')
+grid(axFy, 'on')
+
+axFx = uiaxes(app.plotGrid);
+axFx.Layout.Row = 1;
+axFx.Layout.Column = 2;
+hold(axFx, 'on')
+grid(axFx, 'on')
+
+axEllipse = uiaxes(app.plotGrid);
+axEllipse.Layout.Row = 1;
+axEllipse.Layout.Column = 3;
+hold(axEllipse, 'on')
+grid(axEllipse, 'on')
+
+legendHandlesFy = gobjects(2 * numel(app.SAPlotList), 1);
+legendHandlesFx = gobjects(2 * numel(app.SAPlotList), 1);
+legendHandlesEllipse = gobjects(2 * numel(app.SAPlotList), 1);
+legendTextsFy = strings(2 * numel(app.SAPlotList), 1);
+legendTextsFx = strings(2 * numel(app.SAPlotList), 1);
+legendTextsEllipse = strings(2 * numel(app.SAPlotList), 1);
+
+for j = 1:numel(app.SAPlotList)
+    SAabs = app.SAPlotList(j);
+    thisColor = alphaColors(j, :);
+    thisMarker = alphaMarkers{j};
+
+    out = evaluateSimpleCombinedSlip(tire, kappaSweep(:), SAabs, app.FzRef, fitData.vBelt);
+    [kappaData, FxDataNorm, FyDataNorm] = getSimpleCombinedSlipCurveNormalized(fitData, app.FzRef, SAabs);
+
+    app.plotHandlesFyNorm(j) = plot(axFy, kappaSweep, out.F_tire(:, 2) ./ app.FzRef, ...
+        'LineWidth', 1.5, 'Color', thisColor);
+    app.plotHandlesFyNormData(j) = scatter(axFy, kappaData, FyDataNorm, 24, ...
+        'Marker', thisMarker, ...
+        'MarkerEdgeColor', thisColor, ...
+        'MarkerFaceColor', thisColor, ...
+        'MarkerFaceAlpha', 0.30, ...
+        'MarkerEdgeAlpha', 0.70);
+    legendHandlesFy(2 * j - 1) = app.plotHandlesFyNorm(j);
+    legendTextsFy(2 * j - 1) = "Model \alpha = " + num2str(SAabs) + " deg";
+    legendHandlesFy(2 * j) = app.plotHandlesFyNormData(j);
+    legendTextsFy(2 * j) = "Data \alpha = " + num2str(SAabs) + " deg";
+
+    app.plotHandlesFxNorm(j) = plot(axFx, kappaSweep, out.F_tire(:, 1) ./ app.FzRef, ...
+        'LineWidth', 1.5, 'Color', thisColor);
+    app.plotHandlesFxNormData(j) = scatter(axFx, kappaData, FxDataNorm, 24, ...
+        'Marker', thisMarker, ...
+        'MarkerEdgeColor', thisColor, ...
+        'MarkerFaceColor', thisColor, ...
+        'MarkerFaceAlpha', 0.30, ...
+        'MarkerEdgeAlpha', 0.70);
+    legendHandlesFx(2 * j - 1) = app.plotHandlesFxNorm(j);
+    legendTextsFx(2 * j - 1) = "Model \alpha = " + num2str(SAabs) + " deg";
+    legendHandlesFx(2 * j) = app.plotHandlesFxNormData(j);
+    legendTextsFx(2 * j) = "Data \alpha = " + num2str(SAabs) + " deg";
+
+    app.plotHandlesFyFxModel(j) = plot(axEllipse, out.F_tire(:, 1), out.F_tire(:, 2), ...
+        'LineWidth', 1.5, 'Color', thisColor);
+    app.plotHandlesFyFxData(j) = scatter(axEllipse, FxDataNorm .* app.FzRef, FyDataNorm .* app.FzRef, 24, ...
+        'Marker', thisMarker, ...
+        'MarkerEdgeColor', thisColor, ...
+        'MarkerFaceColor', thisColor, ...
+        'MarkerFaceAlpha', 0.30, ...
+        'MarkerEdgeAlpha', 0.70);
+
+    legendHandlesEllipse(2 * j - 1) = app.plotHandlesFyFxModel(j);
+    legendTextsEllipse(2 * j - 1) = "Model \alpha = " + num2str(SAabs) + " deg";
+    legendHandlesEllipse(2 * j) = app.plotHandlesFyFxData(j);
+    legendTextsEllipse(2 * j) = "Data \alpha = " + num2str(SAabs) + " deg";
+end
+
+xlabel(axFy, 'Slip Ratio')
+ylabel(axFy, 'F_y / F_z')
+title(axFy, "Fy/Fz-kappa, IA = 0 deg, Fz = " + num2str(app.FzRef))
+legend(axFy, legendHandlesFy, legendTextsFy, 'Location', 'best')
+
+xlabel(axFx, 'Slip Ratio')
+ylabel(axFx, 'F_x / F_z')
+title(axFx, "Fx/Fz-kappa, IA = 0 deg, Fz = " + num2str(app.FzRef))
+legend(axFx, legendHandlesFx, legendTextsFx, 'Location', 'best')
+
+xlabel(axEllipse, 'F_x [N]')
+ylabel(axEllipse, 'F_y [N]')
+title(axEllipse, "Fy-Fx, IA = 0 deg, Fz = " + num2str(app.FzRef))
+legend(axEllipse, legendHandlesEllipse, legendTextsEllipse, 'Location', 'best')
+axis(axEllipse, 'equal')
+
+hold(axFy, 'off')
+hold(axFx, 'off')
+hold(axEllipse, 'off')
+
+app.axesHandles(1) = axFy;
+app.axesHandles(2) = axFx;
+app.axesHandles(3) = axEllipse;
+
+win.UserData = app;
+updateParameterPlotsSimpleCombined(win);
+end
+
+function createInteractiveSimpleMzWindow(tire, fitData, mode)
+switch mode
+    case "pureMz"
+        paramSpec = {
+            'Dx0', 1, 'Dx0(1)', [0, 0.30];
+            'Dx0', 2, 'Dx0(2)', [0, 0.30];
+            'De',  1, 'De(1)',  [-0.10, 0.10];
+            'De',  2, 'De(2)',  [-0.10, 0.10];
+            'D1',  1, 'D1(1)',  [0, 8];
+            'D1',  2, 'D1(2)',  [0, 8];
+            'D2',  1, 'D2(1)',  [0, 8];
+            'D2',  2, 'D2(2)',  [0, 8];
+        };
+        winName = 'Pure Mz Fit';
+        nPlotRows = 1;
+        nPlotCols = numel(unique(fitData.mz.Fz));
+end
+
+app = createBaseApp(tire, fitData, paramSpec, mode);
+win = createWindowShell(winName, nPlotRows, nPlotCols, paramSpec);
+app = attachControlsToWindow(app, win, @sliderChangingSimple, @sliderChangedSimple, @editChangedSimple, @resetDefaultsSimple, @updateParameterPlotsSimpleMz);
+
+FzSweep = unique(fitData.mz.Fz).';
+app.FzSweep = FzSweep;
+app.plotHandles = gobjects(numel(FzSweep), 1);
+app.axesHandles = gobjects(numel(FzSweep), 1);
+
+SASweep = linspace(0, 20, 201);
+for k = 1:numel(FzSweep)
+    Fz = FzSweep(k);
+    ax = uiaxes(app.plotGrid);
+    ax.Layout.Row = 1;
+    ax.Layout.Column = k;
+    hold(ax, 'on')
+    grid(ax, 'on')
+
+    mask = fitData.mz.Fz == Fz;
     [alphaDeg, ord] = sort(rad2deg(fitData.mz.alpha(mask)));
     MzData = fitData.mz.target(mask);
     MzData = MzData(ord);
 
-    scatter(ax, alphaDeg, MzData, 12, colors(i, :), '.', 'DisplayName', sprintf('Data %dN', FzLevels(i)));
+    out = evaluateSimplePureLateral(tire, SASweep(:), Fz, fitData.vBelt);
+    scatter(ax, alphaDeg, MzData, 20, "magenta", 'x', 'DisplayName', 'Data');
+    app.plotHandles(k) = plot(ax, SASweep, out.M_tire(:, 3), 'LineWidth', 1.5, 'DisplayName', 'Model', 'Color', [0 0 1]);
 
-    alphaSweep = linspace(min(alphaDeg), max(alphaDeg), 180).';
-    kappa = zeros(size(alphaSweep));
-    Fz = FzLevels(i) * ones(size(alphaSweep));
-    omega = estimateOmegaHub(kappa, Fz, tire, fitData.vBelt);
-    out = unitire_simple_solve(deg2rad(alphaSweep), kappa, Fz, omega, tire, []);
-    plot(ax, alphaSweep, out.M_tire(:, 3), 'Color', colors(i, :), 'LineWidth', 1.4, ...
-        'HandleVisibility', 'off');
-end
-legend(ax, 'Location', 'best')
-end
+    xlabel(ax, 'Slip Angle [deg]')
+    ylabel(ax, 'M_z [N m]')
+    title(ax, "IA = 0 deg, Fz = " + num2str(Fz))
+    legend(ax, 'Location', 'best')
+    hold(ax, 'off')
 
-function [xBest, fBest] = runBoundedFminsearch(objFun, x0, lb, ub, names, displayMode)
-theta0 = boundsInverse(x0, lb, ub);
-wrapper = @(theta) objFun(boundsForward(theta, lb, ub));
-opts = optimset('Display', displayMode, 'MaxIter', 800, 'MaxFunEvals', 4000, 'TolX', 1e-5, 'TolFun', 1e-5);
-
-[thetaBest, fBest] = fminsearch(wrapper, theta0, opts);
-xBest = boundsForward(thetaBest, lb, ub);
-
-fprintf('Optimized parameters:\n');
-for i = 1:numel(names)
-    fprintf('  %-8s = %.6g\n', names{i}, xBest(i));
-end
-fprintf('  objective = %.6g\n', fBest);
+    app.axesHandles(k) = ax;
 end
 
-function x = boundsForward(theta, lb, ub)
-s = 1 ./ (1 + exp(-theta));
-x = lb + (ub - lb) .* s;
+win.UserData = app;
+updateParameterPlotsSimpleMz(win);
 end
 
-function theta = boundsInverse(x, lb, ub)
-xClamped = min(max(x, lb + 1e-9 .* max(1, abs(lb))), ub - 1e-9 .* max(1, abs(ub)));
-r = (xClamped - lb) ./ max(ub - lb, 1e-12);
-r = min(max(r, 1e-9), 1 - 1e-9);
-theta = log(r ./ (1 - r));
-end
-
-function y = rmsSafe(x)
-if isempty(x)
-    y = 0;
+function app = createBaseApp(tire, fitData, paramSpec, mode)
+app = struct();
+app.tire = tire;
+app.defaults = tire;
+app.fitData = fitData;
+app.saveFile = '';
+app.paramSpec = paramSpec;
+if isempty(paramSpec)
+    app.paramNames = strings(0, 1);
+    app.paramRanges = zeros(0, 2);
 else
-    y = sqrt(mean(x(:).^2, 'omitnan'));
+    app.paramNames = string(paramSpec(:, 3));
+    app.paramRanges = vertcat(paramSpec{:, 4});
+end
+app.mode = mode;
+app.controls = struct();
+app.axesHandles = gobjects(0);
+app.plotHandles = gobjects(0);
+end
+
+function win = createWindowShell(winName, nPlotRows, nPlotCols, paramSpec)
+nParams = size(paramSpec, 1);
+nCtrlCols = 2;
+nCtrlRows = ceil(nParams / nCtrlCols);
+
+win = uifigure( ...
+    'Name', winName, ...
+    'Position', [100 100 1850 max(780, 160 + 120 * nCtrlRows)]);
+
+outer = uigridlayout(win, [1 2]);
+outer.ColumnWidth = {460, '1x'};
+outer.RowHeight = {'1x'};
+outer.ColumnSpacing = 10;
+outer.Padding = [10 10 10 10];
+
+ctrlGrid = uigridlayout(outer, [nCtrlRows + 1, nCtrlCols]);
+ctrlGrid.Layout.Row = 1;
+ctrlGrid.Layout.Column = 1;
+ctrlGrid.RowHeight = [repmat({95}, 1, nCtrlRows), {40}];
+ctrlGrid.ColumnWidth = {'1x', '1x'};
+ctrlGrid.Padding = [10 10 10 10];
+ctrlGrid.RowSpacing = 10;
+ctrlGrid.ColumnSpacing = 10;
+ctrlGrid.Scrollable = 'on';
+
+plotGrid = uigridlayout(outer, [nPlotRows, nPlotCols]);
+plotGrid.Layout.Row = 1;
+plotGrid.Layout.Column = 2;
+plotGrid.Padding = [10 10 10 10];
+plotGrid.RowSpacing = 8;
+plotGrid.ColumnSpacing = 8;
+
+win.UserData = struct('ctrlGrid', ctrlGrid, 'plotGrid', plotGrid);
+end
+
+function app = attachControlsToWindow(app, win, sliderChangingFcn, sliderChangedFcn, editChangedFcn, resetFcn, refreshFcn, saveFcn)
+layout = win.UserData;
+ctrlGrid = layout.ctrlGrid;
+plotGrid = layout.plotGrid;
+paramSpec = app.paramSpec;
+nParams = size(paramSpec, 1);
+nCtrlRows = ceil(nParams / 2);
+
+for n = 1:nParams
+    fieldName = paramSpec{n, 1};
+    fieldIndex = paramSpec{n, 2};
+    labelName = paramSpec{n, 3};
+    lims = paramSpec{n, 4};
+    val = getParameterValueSimple(app.tire, fieldName, fieldIndex);
+    valClamped = min(max(val, lims(1)), lims(2));
+
+    row = mod(n - 1, nCtrlRows) + 1;
+    col = floor((n - 1) / nCtrlRows) + 1;
+
+    paramPanel = uipanel(ctrlGrid);
+    paramPanel.Layout.Row = row;
+    paramPanel.Layout.Column = col;
+    paramPanel.BorderType = 'line';
+
+    paramGrid = uigridlayout(paramPanel, [2 2]);
+    paramGrid.RowHeight = {26, 40};
+    paramGrid.ColumnWidth = {'1x', 90};
+    paramGrid.RowSpacing = 4;
+    paramGrid.ColumnSpacing = 6;
+    paramGrid.Padding = [6 6 6 6];
+
+    lbl = uilabel(paramGrid);
+    lbl.Text = labelName;
+    lbl.HorizontalAlignment = 'left';
+    lbl.Layout.Row = 1;
+    lbl.Layout.Column = 1;
+
+    edt = uieditfield(paramGrid, 'numeric');
+    edt.Value = valClamped;
+    edt.Limits = lims;
+    edt.RoundFractionalValues = 'off';
+    edt.Layout.Row = 1;
+    edt.Layout.Column = 2;
+
+    sld = uislider(paramGrid);
+    sld.Limits = lims;
+    sld.Value = valClamped;
+    sld.MajorTicksMode = 'auto';
+    sld.MinorTicks = [];
+    sld.Layout.Row = 2;
+    sld.Layout.Column = [1 2];
+
+    sld.ValueChangingFcn = @(src, event) sliderChangingFcn(src, event, win, n, edt);
+    sld.ValueChangedFcn = @(src, event) sliderChangedFcn(src, event, win, n, edt);
+    edt.ValueChangedFcn = @(src, event) editChangedFcn(src, event, win, n, sld);
+
+    app.controls(n).slider = sld;
+    app.controls(n).edit = edt;
+end
+
+resetBtn = uibutton(ctrlGrid, 'push');
+resetBtn.Text = 'Reset defaults';
+resetBtn.Layout.Row = nCtrlRows + 1;
+resetBtn.Layout.Column = 1;
+resetBtn.ButtonPushedFcn = @(src, event) resetFcn(win);
+
+buttonGrid = uigridlayout(ctrlGrid, [1 2]);
+buttonGrid.Layout.Row = nCtrlRows + 1;
+buttonGrid.Layout.Column = 2;
+buttonGrid.ColumnWidth = {'1x', '1x'};
+buttonGrid.RowSpacing = 0;
+buttonGrid.ColumnSpacing = 6;
+buttonGrid.Padding = [0 0 0 0];
+
+refreshBtn = uibutton(buttonGrid, 'push');
+refreshBtn.Text = 'Refresh';
+refreshBtn.Layout.Row = 1;
+refreshBtn.Layout.Column = 1;
+refreshBtn.ButtonPushedFcn = @(src, event) refreshFcn(win);
+
+saveBtn = uibutton(buttonGrid, 'push');
+saveBtn.Text = 'Save To MAT';
+saveBtn.Layout.Row = 1;
+saveBtn.Layout.Column = 2;
+saveBtn.ButtonPushedFcn = @(src, event) saveFcn(win);
+
+app.ctrlGrid = ctrlGrid;
+app.plotGrid = plotGrid;
+end
+
+function saveCurrentTireSimple(win)
+app = win.UserData;
+tire = app.tire;
+fitData = app.fitData;
+save(app.saveFile, 'tire', 'fitData');
+end
+
+function sliderChangingSimple(~, event, win, idx, edt)
+app = win.UserData;
+newVal = event.Value;
+app.tire = setParameterValueByIndexSimple(app.tire, app.paramSpec, idx, newVal);
+win.UserData = app;
+edt.Value = newVal;
+dispatchSimpleUpdate(win);
+end
+
+function sliderChangedSimple(src, ~, win, idx, edt)
+app = win.UserData;
+newVal = src.Value;
+app.tire = setParameterValueByIndexSimple(app.tire, app.paramSpec, idx, newVal);
+win.UserData = app;
+edt.Value = newVal;
+dispatchSimpleUpdate(win);
+end
+
+function editChangedSimple(src, ~, win, idx, sld)
+app = win.UserData;
+lims = app.paramSpec{idx, 4};
+newVal = min(max(src.Value, lims(1)), lims(2));
+src.Value = newVal;
+sld.Value = newVal;
+app.tire = setParameterValueByIndexSimple(app.tire, app.paramSpec, idx, newVal);
+win.UserData = app;
+dispatchSimpleUpdate(win);
+end
+
+function resetDefaultsSimple(win)
+app = win.UserData;
+for n = 1:size(app.paramSpec, 1)
+    fieldName = app.paramSpec{n, 1};
+    fieldIndex = app.paramSpec{n, 2};
+    lims = app.paramSpec{n, 4};
+    val = getParameterValueSimple(app.defaults, fieldName, fieldIndex);
+    val = min(max(val, lims(1)), lims(2));
+    app.tire = setParameterValueByIndexSimple(app.tire, app.paramSpec, n, val);
+    app.controls(n).slider.Value = val;
+    app.controls(n).edit.Value = val;
+end
+win.UserData = app;
+dispatchSimpleUpdate(win);
+end
+
+function dispatchSimpleUpdate(win)
+app = win.UserData;
+switch app.mode
+    case "integrated"
+        updateParameterPlotsSimpleIntegrated(win);
+    case "pureLateral"
+        updateParameterPlotsSimpleLateral(win);
+    case "pureLongitudinal"
+        updateParameterPlotsSimpleLongitudinal(win);
+    case "combinedSlip"
+        updateParameterPlotsSimpleCombined(win);
+    case "pureMz"
+        updateParameterPlotsSimpleMz(win);
 end
 end
 
-function idx = segmentIndices(i0, i1, maxCount)
-count = i1 - i0 + 1;
-if count <= maxCount
-    idx = (i0:i1).';
-    return
+function updateParameterPlotsSimpleIntegrated(win)
+app = win.UserData;
+SASweep = linspace(0, 20, 201);
+kappaSweep = linspace(-0.2, 0.2, 201);
+
+for k = 1:numel(app.FzSweepLateral)
+    Fz = app.FzSweepLateral(k);
+    out = evaluateSimplePureLateral(app.tire, SASweep(:), Fz, app.fitData.vBelt);
+    app.plotHandlesLateralModel(k).XData = SASweep;
+    app.plotHandlesLateralModel(k).YData = out.F_tire(:, 2);
 end
 
-idx = unique(round(linspace(i0, i1, maxCount))).';
+for k = 1:numel(app.FzSweepLongitudinal)
+    Fz = app.FzSweepLongitudinal(k);
+    out = evaluateSimplePureLongitudinal(app.tire, kappaSweep(:), Fz, app.fitData.vBelt);
+    app.plotHandlesLongitudinalModel(k).XData = kappaSweep;
+    app.plotHandlesLongitudinalModel(k).YData = out.F_tire(:, 1);
 end
 
-function opts = applyDefaults(opts, defaults)
-names = fieldnames(defaults);
-for i = 1:numel(names)
-    if ~isfield(opts, names{i}) || isempty(opts.(names{i}))
-        opts.(names{i}) = defaults.(names{i});
-    end
-end
+for k = 1:numel(app.FzSweepMz)
+    Fz = app.FzSweepMz(k);
+    out = evaluateSimplePureLateral(app.tire, SASweep(:), Fz, app.fitData.vBelt);
+    app.plotHandlesMzModel(k).XData = SASweep;
+    app.plotHandlesMzModel(k).YData = out.M_tire(:, 3);
 end
 
-function [run8, run72_SA0, run72_comb] = getTtcSegmentTables()
-run8 = [
-    1,    2493,  0, 1112;
- 2494,    3739,  0,  889;
- 3740,    4981,  0,  660;
- 4982,    6229,  0,  222;
- 6230,    7474,  0, 1112;
- 7475,    8716,  0,  445;
- 8717,    9959,  2,  889;
- 9960,   11207,  2,  660;
-11208,   12452,  2,  222;
-12453,   13699,  2, 1112;
-13700,   14944,  2,  445;
-14945,   16189,  4,  889;
-16190,   17424,  4,  660;
-17425,   18677,  4,  222;
-18678,   19920,  4, 1112;
-19921,   21168,  4,  445;
-];
+for j = 1:numel(app.SAPlotList)
+    SAabs = app.SAPlotList(j);
+    out = evaluateSimpleCombinedSlip(app.tire, kappaSweep(:), SAabs, app.FzRef, app.fitData.vBelt);
+    [kappaData, FxDataNorm, FyDataNorm] = getSimpleCombinedSlipCurveNormalized(app.fitData, app.FzRef, SAabs);
 
-run72_SA0 = [
-    383,    775,   0, 1112;
-   1255,   1972,   0,  889;
-   2308,   2552,   0,  660;
-   3283,   3927,   0,  222;
-   5830,   6060,   2, 1112;
-   3928,   4645,   2,  889;
-   4966,   5226,   2,  660;
-   6061,   6709,   2,  222;
-   8412,   8843,   4, 1112;
-   6710,   7421,   4,  889;
-   7592,   8023,   4,  660;
-   8844,   9499,   4,  222;
-];
+    app.plotHandlesFyNorm(j).XData = kappaSweep;
+    app.plotHandlesFyNorm(j).YData = out.F_tire(:, 2) ./ app.FzRef;
+    app.plotHandlesFyNormData(j).XData = kappaData;
+    app.plotHandlesFyNormData(j).YData = FyDataNorm;
 
-run72_comb = [
-    9500,   10081,   0,  889,  -3;
-   10210,   10917,   0,  660,  -3;
-   10918,   11604,   0, 1112,  -3;
-   11605,   12251,   0,  222,  -3;
-   12252,   12965,   2,  889,  -3;
-   12966,   13683,   2,  660,  -3;
-   13684,   14412,   2, 1112,  -3;
-   14413,   15064,   2,  222,  -3;
-   15065,   15761,   4,  889,  -3;
-   15762,   16475,   4,  660,  -3;
-   16745,   17189,   4, 1112,  -3;
-   17190,   17834,   4,  222,  -3;
-   17835,   18544,   0,  889,  -6;
-   18545,   19172,   0,  660,  -6;
-   19173,   19865,   0, 1112,  -6;
-   19866,   20524,   0,  222,  -6;
-   20525,   21234,   2,  889,  -6;
-   21235,   21895,   2,  660,  -6;
-   21896,   22596,   2, 1112,  -6;
-   22597,   23249,   2,  222,  -6;
-   23250,   23960,   4,  889,  -6;
-   23961,   24616,   4,  660,  -6;
-   24617,   25336,   4, 1112,  -6;
-   25337,   25992,   4,  222,  -6;
-];
+    app.plotHandlesFxNorm(j).XData = kappaSweep;
+    app.plotHandlesFxNorm(j).YData = out.F_tire(:, 1) ./ app.FzRef;
+    app.plotHandlesFxNormData(j).XData = kappaData;
+    app.plotHandlesFxNormData(j).YData = FxDataNorm;
+
+    app.plotHandlesFyFxModel(j).XData = out.F_tire(:, 1);
+    app.plotHandlesFyFxModel(j).YData = out.F_tire(:, 2);
+    app.plotHandlesFyFxData(j).XData = FxDataNorm .* app.FzRef;
+    app.plotHandlesFyFxData(j).YData = FyDataNorm .* app.FzRef;
 end
 
-function [SA, FY] = getLateralSignals(dataStruct)
-names = fieldnames(dataStruct);
-saCandidates = {'SA','SLA','SlipAngle','ALPHA','alpha'};
-fyCandidates = {'FY','Fy','fy'};
-
-saName = firstMatchingName(names, saCandidates);
-fyName = firstMatchingName(names, fyCandidates);
-
-if isempty(saName)
-    error('Could not find a slip-angle channel in the supplied data file.');
-end
-if isempty(fyName)
-    error('Could not find an Fy channel in the supplied data file.');
+drawnow limitrate
 end
 
-% TTC slip angle uses the opposite sign from the SAE convention used by the solver.
-SA = -dataStruct.(saName);
-FY = dataStruct.(fyName);
-SA = SA(:);
-FY = FY(:);
+function updateParameterPlotsSimpleLateral(win)
+app = win.UserData;
+SASweep = linspace(0, 20, 201);
+for k = 1:numel(app.FzSweep)
+    Fz = app.FzSweep(k);
+    out = evaluateSimplePureLateral(app.tire, SASweep(:), Fz, app.fitData.vBelt);
+    app.plotHandles(k).YData = out.F_tire(:, 2);
+end
+drawnow limitrate
 end
 
-function [kappaData, FX] = getLongitudinalSignals(dataStruct)
-names = fieldnames(dataStruct);
-kappaCandidates = {'SL','SR','KAPPA','kappa','LONGSLIP','SlipRatio','slip_ratio'};
-fxCandidates = {'FX','Fx','fx'};
-
-kappaName = firstMatchingName(names, kappaCandidates);
-fxName = firstMatchingName(names, fxCandidates);
-
-if isempty(kappaName)
-    error('Could not find a longitudinal slip-ratio channel in the supplied data file.');
+function updateParameterPlotsSimpleLongitudinal(win)
+app = win.UserData;
+kappaSweep = linspace(-0.2, 0.2, 201);
+for k = 1:numel(app.FzSweep)
+    Fz = app.FzSweep(k);
+    out = evaluateSimplePureLongitudinal(app.tire, kappaSweep(:), Fz, app.fitData.vBelt);
+    app.plotHandles(k).YData = out.F_tire(:, 1);
 end
-if isempty(fxName)
-    error('Could not find an Fx channel in the supplied data file.');
+drawnow limitrate
 end
 
-kappaData = dataStruct.(kappaName);
-FX = dataStruct.(fxName);
+function updateParameterPlotsSimpleCombined(win)
+app = win.UserData;
+kappaSweep = linspace(-0.2, 0.2, 201);
+for j = 1:numel(app.SAPlotList)
+    SAabs = app.SAPlotList(j);
+    out = evaluateSimpleCombinedSlip(app.tire, kappaSweep(:), SAabs, app.FzRef, app.fitData.vBelt);
+    [kappaData, FxDataNorm, FyDataNorm] = getSimpleCombinedSlipCurveNormalized(app.fitData, app.FzRef, SAabs);
 
-kappaData = kappaData(:);
-FX = FX(:);
+    app.plotHandlesFyNorm(j).XData = kappaSweep;
+    app.plotHandlesFyNorm(j).YData = out.F_tire(:, 2) ./ app.FzRef;
+    app.plotHandlesFyNormData(j).XData = kappaData;
+    app.plotHandlesFyNormData(j).YData = FyDataNorm;
 
-if max(abs(kappaData), [], 'omitnan') > 5
-    kappaData = kappaData / 100;
+    app.plotHandlesFxNorm(j).XData = kappaSweep;
+    app.plotHandlesFxNorm(j).YData = out.F_tire(:, 1) ./ app.FzRef;
+    app.plotHandlesFxNormData(j).XData = kappaData;
+    app.plotHandlesFxNormData(j).YData = FxDataNorm;
+
+    app.plotHandlesFyFxModel(j).XData = out.F_tire(:, 1);
+    app.plotHandlesFyFxModel(j).YData = out.F_tire(:, 2);
+
+    app.plotHandlesFyFxData(j).XData = FxDataNorm .* app.FzRef;
+    app.plotHandlesFyFxData(j).YData = FyDataNorm .* app.FzRef;
 end
-end
-
-function [SA, MZ] = getMzSignals(dataStruct)
-names = fieldnames(dataStruct);
-saCandidates = {'SA','SLA','SlipAngle','ALPHA','alpha'};
-mzCandidates = {'MZ','Mz','mz','MALIGN','AligningMoment','aligning_moment'};
-
-saName = firstMatchingName(names, saCandidates);
-mzName = firstMatchingName(names, mzCandidates);
-
-if isempty(saName)
-    error('Could not find a slip-angle channel in the supplied data file.');
-end
-if isempty(mzName)
-    error('Could not find an Mz channel in the supplied data file.');
-end
-
-% Convert TTC channels to SAE: positive slip angle is steer-right and
-% positive restoring aligning moment in TTC becomes negative Mz in SAE.
-SA = -dataStruct.(saName);
-MZ = dataStruct.(mzName);
-SA = SA(:);
-MZ = MZ(:);
+drawnow limitrate
 end
 
-function name = firstMatchingName(names, candidates)
-name = '';
-for i = 1:numel(candidates)
-    if ismember(candidates{i}, names)
-        name = candidates{i};
+function updateParameterPlotsSimpleMz(win)
+app = win.UserData;
+SASweep = linspace(0, 20, 201);
+for k = 1:numel(app.FzSweep)
+    Fz = app.FzSweep(k);
+    out = evaluateSimplePureLateral(app.tire, SASweep(:), Fz, app.fitData.vBelt);
+    app.plotHandles(k).YData = out.M_tire(:, 3);
+end
+drawnow limitrate
+end
+
+function out = evaluateSimplePureLateral(tire, alphaDeg, Fz, vBelt)
+alpha = deg2rad(alphaDeg(:));
+kappa = zeros(size(alpha));
+FzVec = Fz * ones(size(alpha));
+omega = estimateOmegaHubSimple(kappa, FzVec, tire, vBelt);
+out = unitire_simple_solve(alpha, kappa, FzVec, omega, tire, []);
+end
+
+function out = evaluateSimplePureLongitudinal(tire, kappa, Fz, vBelt)
+kappa = kappa(:);
+alpha = zeros(size(kappa));
+FzVec = Fz * ones(size(kappa));
+omega = estimateOmegaHubSimple(kappa, FzVec, tire, vBelt);
+out = unitire_simple_solve(alpha, kappa, FzVec, omega, tire, []);
+end
+
+function out = evaluateSimpleCombinedSlip(tire, kappa, SAabs, Fz, vBelt)
+kappa = kappa(:);
+if SAabs == 0
+    alpha = zeros(size(kappa));
+else
+    % Match the pure-slip windows: positive slip angle should produce
+    % positive plotted Fy in the simplified solver convention.
+    alpha = deg2rad(SAabs) * ones(size(kappa));
+end
+FzVec = Fz * ones(size(kappa));
+omega = estimateOmegaHubSimple(kappa, FzVec, tire, vBelt);
+out = unitire_simple_solve(alpha, kappa, FzVec, omega, tire, []);
+end
+
+function [kappaData, FxDataNorm, FyDataNorm] = getSimpleCombinedSlipCurveNormalized(fitData, Fz, SAabs)
+kappaData = [];
+FxDataNorm = [];
+FyDataNorm = [];
+
+if SAabs == 0
+    mask = fitData.longitudinal.Fz == Fz;
+    if ~any(mask)
         return
     end
+    kappaData = fitData.longitudinal.kappa(mask);
+    FxData = fitData.longitudinal.target(mask);
+    FyData = zeros(size(FxData));
+else
+    mask = fitData.combined.Fz == Fz & abs(abs(rad2deg(fitData.combined.alpha)) - SAabs) < 1e-9;
+    if ~any(mask)
+        return
+    end
+    kappaData = fitData.combined.kappa(mask);
+    FxData = fitData.combined.fxTarget(mask);
+    FyData = fitData.combined.fyTarget(mask);
 end
+
+[kappaData, ord] = sort(kappaData);
+FxDataNorm = FxData(ord) ./ Fz;
+FyDataNorm = FyData(ord) ./ Fz;
+end
+
+function tire = setParameterValueByIndexSimple(tire, paramSpec, idx, val)
+fieldName = paramSpec{idx, 1};
+fieldIndex = paramSpec{idx, 2};
+if isempty(fieldIndex)
+    tire.(fieldName) = val;
+else
+    tire.(fieldName)(fieldIndex) = val;
+end
+end
+
+function val = getParameterValueSimple(tire, fieldName, fieldIndex)
+if isempty(fieldIndex)
+    val = tire.(fieldName);
+else
+    val = tire.(fieldName)(fieldIndex);
+end
+end
+
+function omega = estimateOmegaHubSimple(kappa, Fz, tire, vBelt)
+Fzn = Fz ./ max(tire.Fz_rated, eps);
+Re = tire.R1 + tire.R2 .* Fzn + tire.R3 .* Fzn.^2;
+Re = max(Re, 1e-4);
+omega = abs((1 + kappa(:)) .* vBelt ./ Re(:));
 end

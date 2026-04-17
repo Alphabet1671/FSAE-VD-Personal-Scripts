@@ -6,3 +6,4 @@
 *.slx.autosave
 slprj/
 /Yaw Dynamics/Tire Model/TTC/
+*.tir
