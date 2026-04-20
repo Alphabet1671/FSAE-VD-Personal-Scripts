@@ -1,3 +1,5 @@
+%% LLM, Apr 2026
+
 %% CompareMFvsUnitire
 % Compare the Hoosier Magic Formula .tir model against the simplified
 % UniTire model using the local mfeval toolbox and unitire_simple_solve.
