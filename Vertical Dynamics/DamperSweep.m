@@ -9,18 +9,18 @@ car.sprungMass = 300; % kg
 car.pitchInertia = 44; % whatever tf the SI unit is for this
 car.unsprungMass = 12; % kg
 car.wheelbase = 1.53; % m
-car.CGx = 0.45; % ratio fwd
+car.CGx = 0.47; % ratio fwd
 car.CGh = 0.3; % m
 
 car.frontInertance = 0; % kg
 car.rearInertance = 0; % kg
 car.frontTireStiffness = 114000; % N/m
-car.frontTireDamping = 400; % Ns/m
+car.frontTireDamping = 40; % Ns/m
 car.rearTireStiffness = 114000;
-car.rearTireDamping = 400;
+car.rearTireDamping = 40;
 
 %% Read Damper/Spring Plots
-frontMR = 1.5; % Motion Ratio
+frontMR = 1.2; % Motion Ratio
 rearMR = 1.5;
 
 frontSpringCurve = SetSpringCurve(readtable("SpringTable.xlsx", "Sheet", "linear_350"), frontMR);
