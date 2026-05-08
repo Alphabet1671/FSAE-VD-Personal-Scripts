@@ -97,7 +97,4 @@ function KPI = CalculateKPI(result)
     KPI.hubPitchRMS = max(hubPitch(simInterval));
     KPI.heaveZeta = zeta;
     
-    KPI.bodeMag = 
-    KPI.bodePhase =  
-    KPI.bodeF = 
 end
